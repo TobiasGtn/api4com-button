@@ -1,6 +1,6 @@
 /**
  * ============================================================
- *  Api4com Webphone GHL — v5.0
+ *  Api4com Webphone GHL — v5.2
  *  Webphone SIP próprio integrado ao GoHighLevel
  *
  *  INSTALAÇÃO:
@@ -20,11 +20,11 @@
 (function () {
   'use strict';
 
-  const API       = 'https://api.api4com.com/api/v1';
-  const LWP_URL   = 'https://api.api4com.com/static/libwebphone.js';
-  const STORE_KEY = 'a4c_wp_v5';
-  const BTN_ID    = 'a4c-ligar-btn';
-  const PANEL_ID  = 'a4c-panel';
+  var API         = 'https://api.api4com.com/api/v1';
+  var JSSIP_URL  = 'https://cdnjs.cloudflare.com/ajax/libs/jssip/3.10.0/jssip.min.js';
+  var STORE_KEY   = 'a4c_wp_v5';
+  var BTN_ID      = 'a4c-ligar-btn';
+  var PANEL_ID    = 'a4c-panel';
 
   /* ─── Estado global ──────────────────────────────────────── */
   var state = {
@@ -81,12 +81,12 @@
     state.sipStatus = 'offline'; state.screen = 'login';
   }
 
-  /* ─── Carrega libwebphone.js ─────────────────────────────── */
-  function loadLibwebphone() {
+  /* ─── Carrega JsSIP (SIP browser-native) ────────────────── */
+  function loadJsSIP() {
     return new Promise(function(resolve, reject) {
-      if (window.libwebphone) { resolve(); return; }
+      if (window.JsSIP) { resolve(); return; }
       var s = document.createElement('script');
-      s.src = LWP_URL;
+      s.src = JSSIP_URL;
       s.onload  = resolve;
       s.onerror = reject;
       document.head.appendChild(s);
@@ -168,36 +168,32 @@
     return String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
   }
 
-  /* ─── SIP ────────────────────────────────────────────────── */
+  /* ─── SIP via JsSIP ─────────────────────────────────────── */
   var _sipTimeout = null;
 
   function initSip() {
-    return loadLibwebphone().then(function() {
+    return loadJsSIP().then(function() {
       var ext    = state.extension;
       var domain = ext.domain;
+      var wsUri  = 'wss://' + domain + ':6443';
 
-      console.group('[Api4com] Iniciando SIP');
+      console.group('[Api4com] Iniciando SIP via JsSIP');
       console.log('Domínio:', domain);
       console.log('Ramal:', ext.ramal);
-      console.log('WSS:', 'wss://' + domain + ':6443');
+      console.log('WSS:', wsUri);
       console.groupEnd();
 
-      if (!document.getElementById('a4c-audio-ctx')) {
-        var d = document.createElement('div');
-        d.id = 'a4c-audio-ctx'; d.style.display = 'none';
-        document.body.appendChild(d);
-      }
-
+      // Para UA anterior se existir
       if (state.webphone) {
-        try { var ua = state.webphone.getUserAgent(); if (ua && ua.stop) ua.stop(); } catch(e) {}
+        try { state.webphone.stop(); } catch(e) {}
         state.webphone = null;
       }
 
-      // Timeout de 20s: se não registrar, mostra erro com diagnóstico
+      // Timeout 20s
       clearTimeout(_sipTimeout);
       _sipTimeout = setTimeout(function() {
         if (state.sipStatus !== 'online') {
-          console.error('[Api4com] Timeout SIP — sem resposta do servidor em 20s');
+          console.error('[Api4com] Timeout SIP — sem resposta em 20s');
           state.sipStatus = 'offline';
           state.screen = 'error';
           render();
@@ -205,38 +201,25 @@
       }, 20000);
 
       try {
-        state.webphone = new window.libwebphone({
-          audioContext:  { renderTargets: ['a4c-audio-ctx'] },
-          mediaDevices:  { videoinput: { enabled: false }, renderTargets: [] },
-          userAgent: {
-            renderTargets: [],
-            transport: {
-              sockets: ['wss://' + domain + ':6443'],
-              recovery_max_interval: 30,
-              recovery_min_interval: 2,
-            },
-            authentication: {
-              username: ext.ramal,
-              password: ext.senha,
-              realm:    domain,
-            },
-            user_agent: {
-              no_answer_timeout: 30,
-              register: true,
-              register_expires: 600,
-              user_agent: 'api4com-ghl-webphone',
-            },
-          },
+        JsSIP.debug.disable('JsSIP:*');
+
+        var socket = new JsSIP.WebSocketInterface(wsUri);
+        var ua = new JsSIP.UA({
+          sockets:          [socket],
+          uri:              'sip:' + ext.ramal + '@' + domain,
+          password:         ext.senha,
+          realm:            domain,
+          register:         true,
+          register_expires: 600,
+          user_agent:       'api4com-ghl-webphone',
+          no_answer_timeout: 30,
         });
 
-        // Loga TODOS os eventos para diagnóstico
-        state.webphone.onAny && state.webphone.onAny(function(event) {
-          console.log('[Api4com SIP event]', event);
-        });
+        state.webphone = ua;
 
-        state.webphone.on('userAgent.registered', function() {
+        ua.on('registered', function() {
           clearTimeout(_sipTimeout);
-          console.log('[Api4com] SIP registrado com sucesso ✓');
+          console.log('[Api4com] SIP registrado ✓');
           state.sipStatus = 'online';
           state.screen    = 'dialer';
           var phone = extractPhone();
@@ -244,44 +227,64 @@
           render();
         });
 
-        state.webphone.on('userAgent.unregistered', function() {
+        ua.on('unregistered', function() {
           console.warn('[Api4com] SIP desregistrado');
-          state.sipStatus = 'offline'; render();
+          state.sipStatus = 'offline';
+          if (state.screen === 'dialer') render();
         });
 
-        state.webphone.on('userAgent.registrationFailed', function(lwp, data) {
+        ua.on('registrationFailed', function(data) {
           clearTimeout(_sipTimeout);
-          console.error('[Api4com] Falha no registro SIP:', data);
+          console.error('[Api4com] Falha no registro SIP:', data.cause);
           state.sipStatus = 'offline';
           state.screen = 'error';
           render();
         });
 
-        state.webphone.on('call.created', function(lwp, call) {
-          if (!call.isPrimary()) { call.reject(); return; }
-          state.currentCall = call;
-          if (call.isInProgress()) {
-            var headers = (call.getCustomHeaders && call.getCustomHeaders()) || {};
-            if (headers['X-Api4comintegratedcall'] === 'true') call.answer();
+        ua.on('newRTCSession', function(data) {
+          var session = data.session;
+          if (session.direction === 'incoming') {
+            // Chamada recebida — aceita automaticamente se integrada
+            var headers = session.request.headers;
+            var integrated = headers['X-Api4comintegratedcall'];
+            if (integrated && integrated[0] && integrated[0].raw === 'true') {
+              session.answer({ mediaConstraints: { audio: true, video: false } });
+            } else {
+              // Toca e mostra chamada recebida
+              state.currentCall = session;
+              state.screen = 'calling';
+              state.muted = false;
+              startTimer();
+              render();
+            }
+          } else {
+            // Chamada sainte
+            state.currentCall = session;
+            state.screen = 'calling';
+            state.muted = false;
+            startTimer();
+            render();
           }
-          state.screen = 'calling'; state.muted = false;
-          startTimer(); render();
+
+          session.on('ended',   function() { stopTimer(); state.currentCall = null; state.screen = 'dialer'; render(); });
+          session.on('failed',  function() { stopTimer(); state.currentCall = null; state.screen = 'dialer'; render(); });
+          session.on('accepted',function() { render(); });
         });
 
-        state.webphone.on('call.terminated', function() {
-          stopTimer(); state.currentCall = null;
-          state.screen = 'dialer'; render();
-        });
+        ua.start();
+        console.log('[Api4com] UA.start() chamado');
 
       } catch(e) {
         clearTimeout(_sipTimeout);
-        console.error('[Api4com] Erro ao instanciar libwebphone:', e);
-        state.screen = 'error'; render();
+        console.error('[Api4com] Erro ao iniciar JsSIP:', e);
+        state.screen = 'error';
+        render();
       }
     }).catch(function(e) {
       clearTimeout(_sipTimeout);
-      console.error('[Api4com] Erro ao carregar libwebphone.js:', e);
-      state.screen = 'error'; render();
+      console.error('[Api4com] Erro ao carregar JsSIP:', e);
+      state.screen = 'error';
+      render();
     });
   }
 
@@ -289,19 +292,26 @@
   function dial(phone) {
     if (state.sipStatus !== 'online') { showMsg('Aguarde a conexão SIP.', 'error'); return; }
     if (!phone) { showMsg('Digite um número.', 'error'); return; }
-    try { state.webphone.getUserAgent().call(phone); }
-    catch(e) { showMsg('Erro ao discar.', 'error'); console.error(e); }
+    try {
+      var options = {
+        mediaConstraints: { audio: true, video: false },
+        pcConfig: { iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }] },
+      };
+      state.webphone.call('sip:' + phone + '@' + state.extension.domain, options);
+    } catch(e) { showMsg('Erro ao discar: ' + e.message, 'error'); console.error('[Api4com] Erro dial:', e); }
   }
 
   function hangup() {
-    if (state.currentCall) { try { state.currentCall.hangup(); } catch(e) {} }
+    if (state.currentCall) {
+      try { state.currentCall.terminate(); } catch(e) {}
+    }
   }
 
   function toggleMute() {
     if (!state.currentCall) return;
     try {
-      if (state.muted) state.currentCall.unmute();
-      else             state.currentCall.mute();
+      if (state.muted) state.currentCall.unmute({ audio: true });
+      else             state.currentCall.mute({ audio: true });
       state.muted = !state.muted; render();
     } catch(e) {}
   }
@@ -578,7 +588,7 @@
 
   function doLogout() {
     if (state.webphone) {
-      try { var ua = state.webphone.getUserAgent(); if (ua && ua.stop) ua.stop(); } catch(e) {}
+      try { state.webphone.stop(); } catch(e) {}
     }
     clearSession(); render();
   }
@@ -743,5 +753,5 @@
     init();
   }
 
-  console.log('[Api4com GHL] v5.0 — Webphone próprio ✓');
+  console.log('[Api4com GHL] v5.1 — JsSIP ✓');
 })();
