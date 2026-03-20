@@ -1,778 +1,425 @@
 /**
  * ============================================================
- *  Api4com Webphone GHL — v5.2.1
- *  Webphone SIP próprio integrado ao GoHighLevel
+ *  Api4com Click-to-Call — GHL Whitelabel v4.1
  *
  *  INSTALAÇÃO:
  *  Settings > Whitelabel > Custom Scripts:
  *  <script src="https://SEU-DOMINIO/api4com-ghl.js"></script>
  *
- *  FLUXO:
- *  1. Operador clica em "Ligar" → painel flutuante abre
- *  2. Se não logado → tela de login (email + senha da Api4com)
- *  3. Login busca ramal/senha SIP automaticamente
- *  4. Conecta SIP via libwebphone.js (sem extensão Chrome)
- *  5. Discador abre com número do contato já preenchido
- *  6. Operador clica em ligar → chamada WebRTC direto no browser
+ *  USO:
+ *  - Botão split [📞 Ligar | ⚙️] aparece ao lado do botão Call
+ *  - Primeira vez: clique em ⚙️ e informe Token + Ramal
+ *  - Depois: clique em Ligar → POST /dialer → Webphone toca
  * ============================================================
  */
 
 (function () {
   'use strict';
 
-  var API         = 'https://api.api4com.com/api/v1';
-  var JSSIP_URL  = 'https://cdnjs.cloudflare.com/ajax/libs/jssip/3.10.0/jssip.min.js';
-  var STORE_KEY   = 'a4c_wp_v5';
-  var BTN_ID      = 'a4c-ligar-btn';
-  var PANEL_ID    = 'a4c-panel';
+  const STORAGE_KEY = 'api4com_cfg_v1';
+  const API_BASE    = 'https://api.api4com.com/api/v1';
+  const WRAP_ID     = 'api4com-btn-wrap';
 
-  /* ─── Estado global ──────────────────────────────────────── */
-  var state = {
-    screen:      'login',
-    token:       null,
-    domain:      null,
-    extensions:  [],
-    extension:   null,
-    phone:       '',
-    webphone:    null,
-    currentCall: null,
-    callTimer:   null,
-    callSeconds: 0,
-    muted:       false,
-    sipStatus:   'offline',
-  };
-
-  /* ─── Estilos reutilizáveis ──────────────────────────────── */
-  var S = {
-    inp: 'width:100%;box-sizing:border-box;padding:10px 13px;border:1.5px solid #e5e7eb;border-radius:9px;font-size:14px;outline:none;font-family:system-ui,sans-serif;color:#111;',
-    lbl: 'font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:5px;',
-    btnPrimary: 'width:100%;display:flex;align-items:center;justify-content:center;padding:12px 16px;background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:system-ui,sans-serif;',
-    btnSecondary: 'width:100%;padding:11px;background:#f9fafb;border:1.5px solid #e5e7eb;border-radius:10px;color:#374151;font-size:13px;font-weight:600;cursor:pointer;font-family:system-ui,sans-serif;',
-  };
-
-  /* ─── Persistência ───────────────────────────────────────── */
-  function loadSession() {
-    try {
-      var s = JSON.parse(localStorage.getItem(STORE_KEY)) || {};
-      if (s.token) {
-        state.token      = s.token;
-        state.domain     = s.domain;
-        state.extension  = s.extension;
-        state.extensions = s.extensions || [];
-        state.screen     = 'connecting';
-      }
-    } catch(e) {}
+  /* ─── Config (localStorage) ─────────────────────────────── */
+  function getConfig() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
+    catch { return {}; }
+  }
+  function saveConfig(cfg) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+  }
+  function isConfigured() {
+    const c = getConfig();
+    return !!(c.token && c.extension);
   }
 
-  function saveSession() {
-    localStorage.setItem(STORE_KEY, JSON.stringify({
-      token:      state.token,
-      domain:     state.domain,
-      extension:  state.extension,
-      extensions: state.extensions,
-    }));
-  }
-
-  function clearSession() {
-    localStorage.removeItem(STORE_KEY);
-    state.token = null; state.domain = null;
-    state.extension = null; state.extensions = [];
-    state.webphone = null; state.currentCall = null;
-    state.sipStatus = 'offline'; state.screen = 'login';
-  }
-
-  /* ─── Carrega JsSIP (SIP browser-native) ────────────────── */
-  function loadJsSIP() {
-    return new Promise(function(resolve, reject) {
-      if (window.JsSIP) { resolve(); return; }
-      var s = document.createElement('script');
-      s.src = JSSIP_URL;
-      s.onload  = resolve;
-      s.onerror = reject;
-      document.head.appendChild(s);
-    });
-  }
-
-  /* ─── API helpers ────────────────────────────────────────── */
-  function apiPost(path, body, token) {
-    var h = { 'Content-Type': 'application/json' };
-    if (token) h['Authorization'] = token;
-    return fetch(API + path, {
-      method: 'POST',
-      headers: h,
-      body: JSON.stringify(body),
-    }).then(function(r) { return r.json(); });
-  }
-
-  function apiGet(path, token) {
-    return fetch(API + path, {
-      headers: { 'Authorization': token },
-    }).then(function(r) { return r.json(); });
+  /* ─── Página relevante ───────────────────────────────────── */
+  function isRelevantPage() {
+    return location.href.includes('/conversations') || location.href.includes('/contacts');
   }
 
   /* ─── Extração de telefone ───────────────────────────────── */
   function extractPhone() {
-    var telLink = document.querySelector('a[href^="tel:"]');
-    if (telLink) { var p = sanitize(telLink.href.replace('tel:', '')); if (p) return p; }
-    var telInput = document.querySelector('input[type="tel"]');
-    if (telInput && telInput.value) { var p2 = sanitize(telInput.value); if (p2) return p2; }
-    var kw = ['telefone','phone','celular','mobile','fone','whatsapp'];
-    var els = document.querySelectorAll('label,span,p,div,td,th');
-    for (var i=0; i<els.length; i++) {
-      var el = els[i];
-      if (kw.indexOf(el.textContent.trim().toLowerCase()) === -1) continue;
-      var candidates = [el.nextElementSibling, el.parentElement && el.parentElement.nextElementSibling].filter(Boolean);
-      for (var j=0; j<candidates.length; j++) {
-        var p3 = extractBR(candidates[j].textContent);
-        if (p3) return p3;
+    const telLink = document.querySelector('a[href^="tel:"]');
+    if (telLink) { const p = sanitize(telLink.href.replace('tel:', '')); if (p) return p; }
+
+    const telInput = document.querySelector('input[type="tel"]');
+    if (telInput?.value) { const p = sanitize(telInput.value); if (p) return p; }
+
+    const labelKeywords = ['telefone', 'phone', 'celular', 'mobile', 'fone', 'whatsapp'];
+    for (const el of document.querySelectorAll('label, span, p, div, td, th')) {
+      if (!labelKeywords.includes(el.textContent.trim().toLowerCase())) continue;
+      const candidates = [
+        el.nextElementSibling,
+        el.parentElement?.nextElementSibling,
+        el.closest('tr')?.nextElementSibling,
+      ].filter(Boolean);
+      for (const c of candidates) {
+        const p = extractBR(c.textContent);
+        if (p) return p;
       }
     }
-    var m = (document.body.innerText||'').match(/\+55\s?\(?\d{2}\)?\s?\d{4,5}[-\s]?\d{4}/);
-    if (m) { var p4 = sanitize(m[0]); if (p4) return p4; }
-    return '';
+
+    const match = (document.body.innerText || '').match(/\+55\s?\(?\d{2}\)?\s?\d{4,5}[-\s]?\d{4}/);
+    if (match) { const p = sanitize(match[0]); if (p) return p; }
+
+    return null;
   }
 
   function extractBR(text) {
     if (!text) return null;
     if (/^\s*\d{1,3}\s*$/.test(text)) return null;
     if (/^\s*\d{1,2}:\d{2}(\s*(AM|PM))?\s*$/.test(text)) return null;
-    var patterns = [/\+55\s?\(?\d{2}\)?\s?\d{4,5}[-\s]?\d{4}/,/\(?\d{2}\)?\s?\d{5}[-\s]?\d{4}/,/\(?\d{2}\)?\s?\d{4}[-\s]?\d{4}/];
-    for (var i=0; i<patterns.length; i++) {
-      var m = text.match(patterns[i]);
-      if (m) { var d = m[0].replace(/\D/g,''); if (d.length>=10&&d.length<=13) return sanitize(m[0]); }
+    const patterns = [
+      /\+55\s?\(?\d{2}\)?\s?\d{4,5}[-\s]?\d{4}/,
+      /\(?\d{2}\)?\s?\d{5}[-\s]?\d{4}/,
+      /\(?\d{2}\)?\s?\d{4}[-\s]?\d{4}/,
+    ];
+    for (const pat of patterns) {
+      const m = text.match(pat);
+      if (m) {
+        const d = m[0].replace(/\D/g, '');
+        if (d.length >= 10 && d.length <= 13) return sanitize(m[0]);
+      }
     }
     return null;
   }
 
   function sanitize(raw) {
     if (!raw) return null;
-    var n = raw.replace(/[^\d+]/g,'');
+    let n = raw.replace(/[^\d+]/g, '');
     if (!n.startsWith('+')) {
-      if (n.startsWith('55')&&n.length>=12) n='+'+n;
-      else if (n.length===10||n.length===11) n='+55'+n;
+      if (n.startsWith('55') && n.length >= 12) n = '+' + n;
+      else if (n.length === 10 || n.length === 11) n = '+55' + n;
     }
-    return (n.startsWith('+')&&n.length>=12&&n.length<=14) ? n : null;
+    return (n.startsWith('+') && n.length >= 12 && n.length <= 14) ? n : null;
   }
 
-  /* ─── Timer ──────────────────────────────────────────────── */
-  function startTimer() {
-    stopTimer();
-    state.callTimer = setInterval(function() {
-      state.callSeconds++;
-      var el = document.getElementById('a4c-call-timer');
-      if (el) el.textContent = fmtTime(state.callSeconds);
-    }, 1000);
-  }
-  function stopTimer() { clearInterval(state.callTimer); state.callSeconds = 0; }
-  function fmtTime(s) {
-    return String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
-  }
-
-  /* ─── SIP via JsSIP ─────────────────────────────────────── */
-  var _sipTimeout = null;
-
-  function initSip() {
-    return loadJsSIP().then(function() {
-      var ext    = state.extension;
-      var domain = ext.domain;
-      var wsUri  = 'wss://' + domain + ':6443';
-
-      console.group('[Api4com] Iniciando SIP via JsSIP');
-      console.log('Domínio:', domain);
-      console.log('Ramal:', ext.ramal);
-      console.log('WSS:', wsUri);
-      console.groupEnd();
-
-      // Para UA anterior se existir
-      if (state.webphone) {
-        try { state.webphone.stop(); } catch(e) {}
-        state.webphone = null;
-      }
-
-      // Timeout 20s
-      clearTimeout(_sipTimeout);
-      _sipTimeout = setTimeout(function() {
-        if (state.sipStatus !== 'online') {
-          console.error('[Api4com] Timeout SIP — sem resposta em 20s');
-          state.sipStatus = 'offline';
-          state.screen = 'error';
-          render();
-        }
-      }, 20000);
-
-      try {
-        // Habilita logs completos do JsSIP para diagnóstico
-        JsSIP.debug.enable('JsSIP:*');
-
-        var socket = new JsSIP.WebSocketInterface(wsUri);
-        var ua = new JsSIP.UA({
-          sockets:           [socket],
-          uri:               'sip:' + ext.ramal + '@' + domain,
-          password:          ext.senha,
-          realm:             domain,
-          register:          true,
-          register_expires:  600,
-          user_agent:        'api4com-ghl-webphone',
-          no_answer_timeout: 30,
-          connection_recovery_min_interval: 2,
-          connection_recovery_max_interval: 30,
-        });
-
-        state.webphone = ua;
-
-        // WebSocket abriu — boa notícia, chegou ao servidor
-        ua.on('connected', function() {
-          console.log('[Api4com] ✅ WebSocket conectado ao servidor SIP — aguardando registro…');
-          var el = document.getElementById('a4c-connecting-msg');
-          if (el) el.textContent = 'WebSocket conectado — registrando ramal…';
-        });
-
-        // WebSocket fechou — problema de rede ou servidor recusou
-        ua.on('disconnected', function(e) {
-          console.error('[Api4com] ❌ WebSocket desconectado:', e);
-          if (state.sipStatus !== 'online') {
-            clearTimeout(_sipTimeout);
-            state.sipStatus = 'offline';
-            state.screen = 'error';
-            render();
-          }
-        });
-
-        ua.on('registered', function() {
-          clearTimeout(_sipTimeout);
-          console.log('[Api4com] ✅ SIP registrado com sucesso!');
-          state.sipStatus = 'online';
-          state.screen    = 'dialer';
-          var phone = extractPhone();
-          if (phone) state.phone = phone;
-          render();
-        });
-
-        ua.on('unregistered', function() {
-          console.warn('[Api4com] SIP desregistrado');
-          state.sipStatus = 'offline';
-          if (state.screen === 'dialer') render();
-        });
-
-        ua.on('registrationFailed', function(data) {
-          clearTimeout(_sipTimeout);
-          console.error('[Api4com] ❌ Falha no registro SIP — causa:', data.cause, data);
-          state.sipStatus = 'offline';
-          state.screen = 'error';
-          render();
-        });
-
-        ua.on('newRTCSession', function(data) {
-          var session = data.session;
-          if (session.direction === 'incoming') {
-            // Chamada recebida — aceita automaticamente se integrada
-            var headers = session.request.headers;
-            var integrated = headers['X-Api4comintegratedcall'];
-            if (integrated && integrated[0] && integrated[0].raw === 'true') {
-              session.answer({ mediaConstraints: { audio: true, video: false } });
-            } else {
-              // Toca e mostra chamada recebida
-              state.currentCall = session;
-              state.screen = 'calling';
-              state.muted = false;
-              startTimer();
-              render();
-            }
-          } else {
-            // Chamada sainte
-            state.currentCall = session;
-            state.screen = 'calling';
-            state.muted = false;
-            startTimer();
-            render();
-          }
-
-          session.on('ended',   function() { stopTimer(); state.currentCall = null; state.screen = 'dialer'; render(); });
-          session.on('failed',  function() { stopTimer(); state.currentCall = null; state.screen = 'dialer'; render(); });
-          session.on('accepted',function() { render(); });
-        });
-
-        ua.start();
-        console.log('[Api4com] UA.start() chamado');
-
-      } catch(e) {
-        clearTimeout(_sipTimeout);
-        console.error('[Api4com] Erro ao iniciar JsSIP:', e);
-        state.screen = 'error';
-        render();
-      }
-    }).catch(function(e) {
-      clearTimeout(_sipTimeout);
-      console.error('[Api4com] Erro ao carregar JsSIP:', e);
-      state.screen = 'error';
-      render();
-    });
-  }
-
-  /* ─── Ações de chamada ───────────────────────────────────── */
-  function dial(phone) {
-    if (state.sipStatus !== 'online') { showMsg('Aguarde a conexão SIP.', 'error'); return; }
-    if (!phone) { showMsg('Digite um número.', 'error'); return; }
+  /* ─── POST /dialer ───────────────────────────────────────── */
+  async function doCall(phone) {
+    const cfg = getConfig();
+    showToast('⏳ Ligando para ' + phone + '…', 'info');
     try {
-      var options = {
-        mediaConstraints: { audio: true, video: false },
-        pcConfig: { iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }] },
-      };
-      state.webphone.call('sip:' + phone + '@' + state.extension.domain, options);
-    } catch(e) { showMsg('Erro ao discar: ' + e.message, 'error'); console.error('[Api4com] Erro dial:', e); }
-  }
-
-  function hangup() {
-    if (state.currentCall) {
-      try { state.currentCall.terminate(); } catch(e) {}
-    }
-  }
-
-  function toggleMute() {
-    if (!state.currentCall) return;
-    try {
-      if (state.muted) state.currentCall.unmute({ audio: true });
-      else             state.currentCall.mute({ audio: true });
-      state.muted = !state.muted; render();
-    } catch(e) {}
-  }
-
-  /* ─── Mensagem interna ───────────────────────────────────── */
-  function showMsg(msg, type) {
-    var el = document.getElementById('a4c-msg');
-    if (!el) return;
-    var colors = { error:'#fef2f2', info:'#eff6ff', success:'#f0fdf4' };
-    var texts  = { error:'#dc2626', info:'#2563eb',  success:'#16a34a' };
-    el.style.cssText = 'padding:9px 14px;font-size:12px;border-radius:8px;margin:10px 14px 0;display:block;' +
-      'background:' + (colors[type]||colors.info) + ';color:' + (texts[type]||texts.info) + ';';
-    el.textContent = msg;
-    clearTimeout(el._t);
-    el._t = setTimeout(function() { el.style.display = 'none'; }, 5000);
-  }
-
-  /* ═══════════════════════════════════════════════════════════
-     RENDER
-  ═══════════════════════════════════════════════════════════ */
-  function hdr(title, showSettings, showBack) {
-    return '<div style="display:flex;align-items:center;gap:10px;padding:14px 16px 12px;' +
-      'background:linear-gradient(135deg,#1e3a8a,#2563eb);cursor:move;user-select:none;" id="a4c-drag-handle">' +
-      '<div style="width:28px;height:28px;background:rgba(255,255,255,0.2);border-radius:7px;' +
-      'display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;">📞</div>' +
-      '<span style="color:#fff;font-weight:700;font-size:14px;flex:1;">' + title + '</span>' +
-      (showBack ? '<button id="a4c-back" style="background:rgba(255,255,255,0.15);border:none;color:#fff;width:26px;height:26px;border-radius:6px;cursor:pointer;font-size:13px;">←</button>' : '') +
-      (showSettings ? '<button id="a4c-settings-btn" style="background:rgba(255,255,255,0.15);border:none;color:#fff;width:26px;height:26px;border-radius:6px;cursor:pointer;font-size:13px;">⚙</button>' : '') +
-      '<button id="a4c-close-panel" style="background:rgba(255,255,255,0.15);border:none;color:#fff;width:26px;height:26px;border-radius:6px;cursor:pointer;font-size:15px;">✕</button>' +
-      '</div>';
-  }
-
-  function msgBar() {
-    return '<div id="a4c-msg" style="display:none;"></div>';
-  }
-
-  function renderLogin() {
-    return hdr('Api4com — Login') + msgBar() +
-      '<div style="padding:16px;">' +
-      '<p style="font-size:12px;color:#6b7280;margin:0 0 14px;line-height:1.6;">Use o e-mail e senha da sua conta em ' +
-      '<a href="https://app.api4com.com" target="_blank" style="color:#2563eb;">app.api4com.com</a></p>' +
-      '<label style="display:block;margin-bottom:10px;"><span style="' + S.lbl + '">E-mail</span>' +
-      '<input id="a4c-email" type="email" placeholder="seu@email.com" style="' + S.inp + '"/></label>' +
-      '<label style="display:block;margin-bottom:16px;"><span style="' + S.lbl + '">Senha</span>' +
-      '<input id="a4c-pass" type="password" placeholder="••••••••" style="' + S.inp + '"/></label>' +
-      '<button id="a4c-login-btn" style="' + S.btnPrimary + '">Entrar</button>' +
-      '</div>';
-  }
-
-  function renderConnecting() {
-    return hdr('Api4com — Conectando') +
-      '<div style="padding:32px 16px;display:flex;flex-direction:column;align-items:center;gap:14px;">' +
-      '<div style="width:34px;height:34px;border:3px solid #e5e7eb;border-top-color:#2563eb;border-radius:50%;animation:a4c-spin 0.8s linear infinite;"></div>' +
-      '<span style="font-size:13px;color:#6b7280;"<span id=\"a4c-connecting-msg\">Registrando ramal SIP…</span></span>' +
-      '<button id="a4c-logout-sm" style="font-size:12px;color:#6b7280;background:none;border:none;cursor:pointer;text-decoration:underline;">Sair / trocar conta</button>' +
-      '</div>';
-  }
-
-  function renderDialer() {
-    var ext   = state.extension;
-    var ramal = ext ? ext.ramal : '—';
-    var isOnline = state.sipStatus === 'online';
-    var digits = ['1','2','3','4','5','6','7','8','9','*','0','#'];
-    var keys = digits.map(function(d) {
-      return '<button class="a4c-key" data-digit="' + d + '" style="height:42px;background:#f9fafb;border:1.5px solid #e5e7eb;border-radius:9px;font-size:16px;font-weight:600;color:#1f2937;cursor:pointer;">' + d + '</button>';
-    }).join('');
-
-    return hdr('Api4com', true) + msgBar() +
-      '<div style="padding:14px 16px 16px;">' +
-
-      // Status
-      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">' +
-      '<div style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:' + (isOnline?'#22c55e':'#f59e0b') + ';box-shadow:0 0 0 2px ' + (isOnline?'#dcfce7':'#fef3c7') + ';"></div>' +
-      '<span style="font-size:12px;color:#6b7280;">' + (isOnline?'Online':'Conectando…') + ' — Ramal ' + ramal + '</span>' +
-      '</div>' +
-
-      // Campo número
-      '<div style="position:relative;margin-bottom:10px;">' +
-      '<input id="a4c-phone-input" type="tel" value="' + (state.phone||'') + '" placeholder="+55 (00) 00000-0000" style="' + S.inp + 'padding-right:38px;font-size:16px;font-weight:600;"/>' +
-      '<button id="a4c-clear-phone" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:#9ca3af;cursor:pointer;font-size:15px;padding:0;">✕</button>' +
-      '</div>' +
-
-      // Teclado
-      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">' + keys + '</div>' +
-
-      // Botão ligar
-      '<button id="a4c-dial-btn" style="' + S.btnPrimary + 'height:46px;border-radius:12px;' + (!isOnline?'opacity:0.5;cursor:not-allowed;':'') + '">' +
-      '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:7px"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81a19.79 19.79 0 01-3.07-8.67A2 2 0 012 .91h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 8.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>' +
-      'Ligar</button>' +
-      '</div>';
-  }
-
-  function renderCalling() {
-    return hdr('Em chamada') +
-      '<div style="padding:22px 16px;display:flex;flex-direction:column;align-items:center;gap:16px;">' +
-      '<div style="width:58px;height:58px;background:linear-gradient(135deg,#1e3a8a,#3b82f6);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:24px;">👤</div>' +
-      '<div style="text-align:center;">' +
-      '<div style="font-size:17px;font-weight:700;color:#111;letter-spacing:0.5px;">' + state.phone + '</div>' +
-      '<div id="a4c-call-timer" style="font-size:13px;color:#6b7280;margin-top:3px;">00:00</div>' +
-      '</div>' +
-      '<div style="display:flex;gap:14px;margin-top:4px;">' +
-      '<button id="a4c-mute-btn" style="width:52px;height:52px;border-radius:50%;border:2px solid #e5e7eb;background:' + (state.muted?'#fee2e2':'#f9fafb') + ';color:' + (state.muted?'#dc2626':'#374151') + ';font-size:20px;cursor:pointer;">' + (state.muted?'🔇':'🎙') + '</button>' +
-      '<button id="a4c-hangup-btn" style="width:64px;height:64px;border-radius:50%;border:none;background:linear-gradient(135deg,#dc2626,#ef4444);color:#fff;font-size:22px;cursor:pointer;box-shadow:0 4px 14px rgba(220,38,38,0.4);">📵</button>' +
-      '<div style="width:52px;height:52px;border-radius:50%;border:2px solid #e5e7eb;background:#f9fafb;display:flex;align-items:center;justify-content:center;font-size:20px;opacity:0.35;">🔊</div>' +
-      '</div></div>';
-  }
-
-  function renderSettings() {
-    var ext = state.extension;
-    var extOptions = state.extensions.map(function(e) {
-      return '<option value="' + e.id + '"' + (state.extension && state.extension.id===e.id?' selected':'') + '>' + e.ramal + ' — ' + (e.first_name||'') + ' ' + (e.last_name||'') + '</option>';
-    }).join('');
-
-    return hdr('Configurações', false, true) + msgBar() +
-      '<div style="padding:14px 16px 18px;">' +
-
-      // Ramal ativo
-      '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:12px 14px;margin-bottom:14px;">' +
-      '<div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Ramal ativo</div>' +
-      '<div style="font-size:14px;font-weight:700;color:#111;">' + (ext ? ext.ramal + ' — ' + (ext.first_name||'') + ' ' + (ext.last_name||'') : 'Nenhum') + '</div>' +
-      '<div style="font-size:12px;color:#6b7280;margin-top:2px;">' + (ext&&ext.domain||'') + '</div>' +
-      '</div>' +
-
-      // Seleção de ramal (se houver mais de um)
-      (state.extensions.length > 1 ?
-        '<label style="display:block;margin-bottom:10px;"><span style="' + S.lbl + '">Trocar ramal</span>' +
-        '<select id="a4c-ext-select" style="' + S.inp + 'cursor:pointer;">' + extOptions + '</select></label>' +
-        '<button id="a4c-apply-ext" style="' + S.btnSecondary + 'margin-bottom:14px;">Aplicar ramal</button>'
-      : '') +
-
-      // Logout
-      '<button id="a4c-logout" style="width:100%;padding:11px;background:#fff;border:1.5px solid #fca5a5;border-radius:10px;color:#dc2626;font-size:13px;font-weight:600;cursor:pointer;font-family:system-ui,sans-serif;">Sair da conta Api4com</button>' +
-      '</div>';
-  }
-
-  function renderError() {
-    var ext = state.extension;
-    return hdr('Api4com — Erro de Conexão') +
-      '<div style="padding:20px 16px;">' +
-      '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:14px;margin-bottom:16px;font-size:13px;color:#dc2626;line-height:1.7;">' +
-      '<strong>Não foi possível conectar ao servidor SIP.</strong><br>' +
-      'Possíveis causas:<br>' +
-      '• Ramal ou senha incorretos<br>' +
-      '• Conexão bloqueada pelo navegador<br>' +
-      '• Servidor SIP temporariamente indisponível' +
-      '</div>' +
-      '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:11px;color:#6b7280;font-family:monospace;word-break:break-all;">' +
-      'WSS: wss://' + (ext && ext.domain || '?') + ':6443<br>' +
-      'Ramal: ' + (ext && ext.ramal || '?') +
-      '</div>' +
-      '<p style="font-size:12px;color:#6b7280;margin:0 0 14px;line-height:1.6;">Abra o Console do Chrome (F12) e procure por erros <strong>[Api4com]</strong> para diagnóstico detalhado.</p>' +
-      '<button id="a4c-retry-sip" style="' + S.btnPrimary + 'margin-bottom:10px;">Tentar novamente</button>' +
-      '<button id="a4c-goto-settings" style="' + S.btnSecondary + 'margin-bottom:10px;">Verificar credenciais</button>' +
-      '<button id="a4c-logout" style="width:100%;padding:10px;background:#fff;border:1.5px solid #fca5a5;border-radius:10px;color:#dc2626;font-size:13px;font-weight:600;cursor:pointer;font-family:system-ui,sans-serif;">Sair da conta</button>' +
-      '</div>';
-  }
-
-  function render() {
-    var panel = document.getElementById(PANEL_ID);
-    if (!panel) return;
-    var screens = { login:renderLogin, connecting:renderConnecting, dialer:renderDialer, calling:renderCalling, settings:renderSettings, error:renderError };
-    panel.innerHTML = (screens[state.screen] || renderLogin)();
-    bindEvents();
-  }
-
-  /* ─── Bind events ────────────────────────────────────────── */
-  function on(id, ev, fn) {
-    var el = document.getElementById(id);
-    if (el) el.addEventListener(ev, fn);
-  }
-
-  function bindEvents() {
-    on('a4c-close-panel', 'click', function() {
-      document.getElementById(PANEL_ID).style.display = 'none';
-    });
-    on('a4c-settings-btn', 'click', function() { state.screen='settings'; render(); });
-    on('a4c-back',         'click', function() { state.screen='dialer';   render(); });
-    on('a4c-login-btn',    'click', doLogin);
-    on('a4c-logout',       'click', doLogout);
-    on('a4c-retry-sip',    'click', function() { state.screen='connecting'; render(); initSip(); });
-    on('a4c-goto-settings','click', function() { state.screen='settings';   render(); });
-    on('a4c-logout-sm',    'click', doLogout);
-    on('a4c-dial-btn',     'click', function() {
-      if (state.sipStatus !== 'online') return;
-      var inp = document.getElementById('a4c-phone-input');
-      var phone = inp ? inp.value.trim() : state.phone;
-      if (phone) { state.phone = phone; dial(phone); }
-      else showMsg('Digite um número para ligar.', 'error');
-    });
-    on('a4c-hangup-btn',  'click', hangup);
-    on('a4c-mute-btn',    'click', toggleMute);
-    on('a4c-clear-phone', 'click', function() {
-      state.phone = '';
-      var inp = document.getElementById('a4c-phone-input');
-      if (inp) inp.value = '';
-    });
-    on('a4c-apply-ext', 'click', function() {
-      var sel = document.getElementById('a4c-ext-select');
-      if (!sel) return;
-      var chosen = null;
-      for (var i=0; i<state.extensions.length; i++) {
-        if (String(state.extensions[i].id) === sel.value) { chosen = state.extensions[i]; break; }
-      }
-      if (chosen) {
-        state.extension = chosen; saveSession();
-        state.screen = 'connecting'; render();
-        initSip();
-      }
-    });
-
-    // Enter no login
-    var passEl = document.getElementById('a4c-pass');
-    if (passEl) passEl.addEventListener('keydown', function(e) { if (e.key==='Enter') doLogin(); });
-
-    // Teclado numérico
-    var keys = document.querySelectorAll('.a4c-key');
-    for (var k=0; k<keys.length; k++) {
-      (function(btn) {
-        btn.addEventListener('click', function() {
-          var inp = document.getElementById('a4c-phone-input');
-          if (inp) { inp.value += btn.dataset.digit; state.phone = inp.value; }
-        });
-        btn.addEventListener('mouseenter', function() { btn.style.background='#e5e7eb'; });
-        btn.addEventListener('mouseleave', function() { btn.style.background='#f9fafb'; });
-      })(keys[k]);
-    }
-
-    // Campo telefone sync
-    var phoneInp = document.getElementById('a4c-phone-input');
-    if (phoneInp) phoneInp.addEventListener('input', function(e) { state.phone = e.target.value; });
-
-    makeDraggable(document.getElementById(PANEL_ID), document.getElementById('a4c-drag-handle'));
-  }
-
-  /* ─── Login ──────────────────────────────────────────────── */
-  function doLogin() {
-    var email = (document.getElementById('a4c-email') || {}).value || '';
-    var pass  = (document.getElementById('a4c-pass')  || {}).value || '';
-    email = email.trim(); pass = pass.trim();
-    if (!email || !pass) { showMsg('Preencha e-mail e senha.', 'error'); return; }
-
-    var btn = document.getElementById('a4c-login-btn');
-    if (btn) { btn.textContent = 'Entrando…'; btn.disabled = true; }
-
-    apiPost('/users/login', { email: email, password: pass })
-      .then(function(res) {
-        if (!res.id) {
-          showMsg('E-mail ou senha incorretos.', 'error');
-          if (btn) { btn.textContent = 'Entrar'; btn.disabled = false; }
-          return;
-        }
-        state.token = res.id;
-        return apiGet('/extensions', state.token).then(function(exts) {
-          if (!Array.isArray(exts) || exts.length === 0) {
-            showMsg('Nenhum ramal encontrado para esta conta.', 'error');
-            if (btn) { btn.textContent = 'Entrar'; btn.disabled = false; }
-            return;
-          }
-          state.extensions = exts;
-          state.extension  = exts[0];
-          state.domain     = exts[0].domain;
-          saveSession();
-          state.screen = 'connecting';
-          render();
-          initSip();
-        });
-      })
-      .catch(function(e) {
-        showMsg('Erro de conexão com a Api4com.', 'error');
-        console.error('[Api4com]', e);
-        if (btn) { btn.textContent = 'Entrar'; btn.disabled = false; }
+      const resp = await fetch(API_BASE + '/dialer', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': cfg.token,
+        },
+        body: JSON.stringify({
+          extension: cfg.extension,
+          phone,
+          metadata: { gateway: 'ghl-whitelabel' },
+        }),
       });
-  }
-
-  function doLogout() {
-    if (state.webphone) {
-      try { state.webphone.stop(); } catch(e) {}
-    }
-    clearSession(); render();
-  }
-
-  /* ─── Drag ───────────────────────────────────────────────── */
-  function makeDraggable(panel, handle) {
-    if (!handle || !panel) return;
-    var ox=0, oy=0, drag=false;
-    handle.addEventListener('mousedown', function(e) {
-      drag=true;
-      var r = panel.getBoundingClientRect();
-      ox = e.clientX - r.left; oy = e.clientY - r.top;
-      e.preventDefault();
-    });
-    document.addEventListener('mousemove', function(e) {
-      if (!drag) return;
-      panel.style.left   = (e.clientX - ox) + 'px';
-      panel.style.top    = (e.clientY - oy) + 'px';
-      panel.style.right  = 'auto';
-      panel.style.bottom = 'auto';
-    });
-    document.addEventListener('mouseup', function() { drag = false; });
-  }
-
-  /* ─── Cria painel ────────────────────────────────────────── */
-  function createPanel() {
-    if (document.getElementById(PANEL_ID)) return;
-
-    if (!document.getElementById('a4c-styles')) {
-      var style = document.createElement('style');
-      style.id  = 'a4c-styles';
-      style.textContent = [
-        '@keyframes a4c-spin { to { transform:rotate(360deg); } }',
-        '@keyframes a4c-fadein { from { opacity:0;transform:scale(0.95) translateY(8px); } to { opacity:1;transform:scale(1) translateY(0); } }',
-        '#' + PANEL_ID + ' { animation:a4c-fadein 0.2s ease; }',
-        '#' + PANEL_ID + ' input:focus { border-color:#3b82f6 !important; box-shadow:0 0 0 3px rgba(59,130,246,0.15); }',
-      ].join('');
-      document.head.appendChild(style);
-    }
-
-    var panel = document.createElement('div');
-    panel.id = PANEL_ID;
-    Object.assign(panel.style, {
-      position:     'fixed',
-      bottom:       '72px',
-      right:        '24px',
-      width:        '300px',
-      background:   '#ffffff',
-      borderRadius: '16px',
-      boxShadow:    '0 8px 40px rgba(0,0,0,0.2),0 2px 8px rgba(0,0,0,0.08)',
-      zIndex:       '2147483640',
-      fontFamily:   'system-ui,-apple-system,sans-serif',
-      overflow:     'hidden',
-      display:      'none',
-    });
-
-    document.body.appendChild(panel);
-    render();
-  }
-
-  function openPanel() {
-    var panel = document.getElementById(PANEL_ID);
-    if (!panel) return;
-    if (panel.style.display === 'none' || panel.style.display === '') {
-      panel.style.display = 'block';
-      if (state.screen === 'dialer') {
-        var phone = extractPhone();
-        if (phone) state.phone = phone;
-        render();
+      const data = await resp.json();
+      if (resp.ok && data.id) {
+        showToast('✅ Chamada iniciada! Atenda o Webphone.', 'success');
+      } else {
+        showToast('❌ ' + (data.message || data.error || 'Erro na chamada'), 'error');
+        console.error('[Api4com]', data);
       }
-    } else {
-      panel.style.display = 'none';
+    } catch (e) {
+      showToast('❌ Falha de conexão.', 'error');
+      console.error('[Api4com]', e);
     }
   }
 
-  /* ─── Botão GHL header ───────────────────────────────────── */
+  /* ─── Toast ──────────────────────────────────────────────── */
+  function showToast(msg, type) {
+    const colors = { info: '#2563eb', success: '#16a34a', error: '#dc2626' };
+    let t = document.getElementById('api4com-toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = 'api4com-toast';
+      document.body.appendChild(t);
+    }
+    Object.assign(t.style, {
+      position: 'fixed', bottom: '24px', left: '50%',
+      transform: 'translateX(-50%)',
+      background: colors[type] || colors.info,
+      color: '#fff', padding: '10px 20px',
+      borderRadius: '10px', fontSize: '13px',
+      fontFamily: 'system-ui,sans-serif', fontWeight: '500',
+      boxShadow: '0 4px 20px rgba(0,0,0,0.22)',
+      zIndex: '2147483647', opacity: '1',
+      transition: 'opacity 0.4s', pointerEvents: 'none',
+    });
+    t.textContent = msg;
+    clearTimeout(t._t);
+    t._t = setTimeout(() => { t.style.opacity = '0'; }, 4500);
+  }
+
+  /* ─── Modal de configuração ──────────────────────────────── */
+  function openModal() {
+    if (document.getElementById('api4com-modal')) return;
+    const cfg = getConfig();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'api4com-modal';
+    Object.assign(overlay.style, {
+      position: 'fixed', inset: '0',
+      background: 'rgba(0,0,0,0.5)',
+      backdropFilter: 'blur(4px)',
+      zIndex: '2147483646',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontFamily: 'system-ui,-apple-system,sans-serif',
+    });
+
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:16px;padding:32px;width:390px;
+                  box-shadow:0 24px 60px rgba(0,0,0,0.28);">
+
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:22px;">
+          <div style="width:42px;height:42px;flex-shrink:0;
+                      background:linear-gradient(135deg,#1e40af,#3b82f6);
+                      border-radius:11px;display:flex;align-items:center;
+                      justify-content:center;font-size:20px;">📞</div>
+          <div>
+            <div style="font-size:16px;font-weight:700;color:#111;">Api4com</div>
+            <div style="font-size:12px;color:#6b7280;">Configuração do agente</div>
+          </div>
+          <button id="a4c-close"
+            style="margin-left:auto;background:none;border:none;
+                   cursor:pointer;font-size:20px;color:#9ca3af;padding:4px;">✕</button>
+        </div>
+
+        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;
+                    padding:14px;margin-bottom:20px;font-size:13px;
+                    color:#1e40af;line-height:1.8;">
+          <strong>Onde encontrar suas credenciais?</strong><br>
+          1. Acesse <a href="https://app.api4com.com" target="_blank"
+               style="color:#1d4ed8;font-weight:600;">app.api4com.com</a><br>
+          2. Perfil → <strong>Tokens de Acesso</strong> → criar com TTL = -1<br>
+          3. O <strong>Ramal</strong> aparece no Webphone Chrome (ícone verde)
+        </div>
+
+        <label style="display:block;margin-bottom:14px;">
+          <span style="font-size:13px;font-weight:600;color:#374151;
+                       display:block;margin-bottom:5px;">Token de Acesso</span>
+          <input id="a4c-token" type="password" value="${cfg.token || ''}"
+            placeholder="Cole aqui seu token…"
+            style="width:100%;box-sizing:border-box;padding:10px 13px;
+                   border:1.5px solid #d1d5db;border-radius:8px;
+                   font-size:14px;outline:none;"/>
+        </label>
+
+        <label style="display:block;margin-bottom:24px;">
+          <span style="font-size:13px;font-weight:600;color:#374151;
+                       display:block;margin-bottom:5px;">Número do Ramal</span>
+          <input id="a4c-ramal" type="text" value="${cfg.extension || ''}"
+            placeholder="Ex: 1001"
+            style="width:100%;box-sizing:border-box;padding:10px 13px;
+                   border:1.5px solid #d1d5db;border-radius:8px;
+                   font-size:14px;outline:none;"/>
+        </label>
+
+        <button id="a4c-save"
+          style="width:100%;padding:13px;
+                 background:linear-gradient(135deg,#1e40af,#3b82f6);
+                 color:#fff;border:none;border-radius:10px;
+                 font-size:15px;font-weight:600;cursor:pointer;">
+          Salvar configuração
+        </button>
+
+        <div id="a4c-msg"
+          style="margin-top:12px;text-align:center;font-size:13px;min-height:18px;"></div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    overlay.querySelector('#a4c-close').onclick = () => overlay.remove();
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+    overlay.querySelector('#a4c-save').onclick = () => {
+      const token = overlay.querySelector('#a4c-token').value.trim();
+      const ext   = overlay.querySelector('#a4c-ramal').value.trim();
+      const msg   = overlay.querySelector('#a4c-msg');
+      if (!token) { msg.style.color = '#dc2626'; msg.textContent = '⚠️ Informe o Token.'; return; }
+      if (!ext)   { msg.style.color = '#dc2626'; msg.textContent = '⚠️ Informe o Ramal.'; return; }
+      saveConfig({ token, extension: ext });
+      msg.style.color   = '#16a34a';
+      msg.textContent   = '✅ Configuração salva!';
+      setTimeout(() => overlay.remove(), 1200);
+    };
+
+    setTimeout(() => {
+      const inp = overlay.querySelector(cfg.token ? '#a4c-ramal' : '#a4c-token');
+      if (inp) inp.focus();
+    }, 80);
+  }
+
+  /* ─── Botão split [📞 Ligar | ⚙️] ───────────────────────── */
   function findAnchor() {
-    var btns = document.querySelectorAll('button');
-    for (var i=0; i<btns.length; i++) {
-      var btn = btns[i];
-      var text = btn.textContent.trim();
-      if (text==='Call'||text.endsWith('Call')) {
-        var rgb = window.getComputedStyle(btn).backgroundColor.match(/\d+/g);
+    for (const btn of document.querySelectorAll('button')) {
+      const text = btn.textContent.trim();
+      if (text === 'Call' || text.endsWith('Call')) {
+        const rgb = window.getComputedStyle(btn).backgroundColor.match(/\d+/g);
         if (rgb) {
-          var r=+rgb[0],g=+rgb[1],b=+rgb[2];
-          if (g>r&&g>b&&g>80) return btn;
+          const [r, g, b] = rgb.map(Number);
+          if (g > r && g > b && g > 80) return btn;
         }
       }
     }
     return document.querySelector('button[id*="call"],button[class*="call"],button[id*="wa-"]');
   }
 
-  function isRelevantPage() {
-    return location.href.includes('/conversations') || location.href.includes('/contacts');
-  }
-
   function injectButton() {
-    if (document.getElementById(BTN_ID)) return;
-    var anchor = findAnchor();
+    if (document.getElementById(WRAP_ID)) return;
+    const anchor = findAnchor();
     if (!anchor) return;
 
-    var h = anchor.offsetHeight || 32;
-    var btn = document.createElement('button');
-    btn.id = BTN_ID;
-    Object.assign(btn.style, {
-      display: 'inline-flex', alignItems: 'center', gap: '6px',
-      padding: '0 14px', height: h+'px',
-      background: 'linear-gradient(135deg,#1e3a8a,#2563eb)',
-      color: '#fff', border: 'none', borderRadius: '8px',
-      fontSize: '13px', fontWeight: '600',
-      fontFamily: 'system-ui,-apple-system,sans-serif',
-      cursor: 'pointer', boxShadow: '0 2px 8px rgba(37,99,235,0.35)',
-      letterSpacing: '0.2px', whiteSpace: 'nowrap',
-      transition: 'filter 0.15s', marginRight: '8px', verticalAlign: 'middle',
+    const h = anchor.offsetHeight || 32;
+
+    const wrap = document.createElement('div');
+    wrap.id = WRAP_ID;
+    Object.assign(wrap.style, {
+      display:       'inline-flex',
+      alignItems:    'center',
+      height:        h + 'px',
+      borderRadius:  '8px',
+      overflow:      'hidden',
+      boxShadow:     '0 2px 8px rgba(37,99,235,0.35)',
+      marginRight:   '8px',
+      verticalAlign: 'middle',
+      flexShrink:    '0',
     });
-    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81a19.79 19.79 0 01-3.07-8.67A2 2 0 012 .91h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 8.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg> Ligar';
-    btn.addEventListener('mouseenter', function() { btn.style.filter='brightness(1.15)'; });
-    btn.addEventListener('mouseleave', function() { btn.style.filter='brightness(1)'; });
-    btn.addEventListener('click', openPanel);
-    anchor.parentNode.insertBefore(btn, anchor);
-    console.log('[Api4com] Botão v5 injetado ✓');
+
+    /* Parte esquerda: Ligar */
+    const dialPart = document.createElement('button');
+    Object.assign(dialPart.style, {
+      display:       'inline-flex',
+      alignItems:    'center',
+      gap:           '6px',
+      padding:       '0 14px',
+      height:        '100%',
+      background:    'linear-gradient(135deg,#1e3a8a,#2563eb)',
+      color:         '#fff',
+      border:        'none',
+      borderRight:   '1px solid rgba(255,255,255,0.2)',
+      fontSize:      '13px',
+      fontWeight:    '600',
+      fontFamily:    'system-ui,-apple-system,sans-serif',
+      cursor:        'pointer',
+      whiteSpace:    'nowrap',
+      letterSpacing: '0.2px',
+      transition:    'filter 0.15s',
+    });
+    dialPart.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2.5"
+           stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0">
+        <path d="M22 16.92v3a2 2 0 01-2.18 2
+                 19.79 19.79 0 01-8.63-3.07
+                 A19.5 19.5 0 013.07 9.81
+                 a19.79 19.79 0 01-3.07-8.67
+                 A2 2 0 012 .91h3a2 2 0 012 1.72
+                 c.127.96.361 1.903.7 2.81
+                 a2 2 0 01-.45 2.11L6.09 8.91
+                 a16 16 0 006 6l1.27-1.27
+                 a2 2 0 012.11-.45
+                 c.907.339 1.85.573 2.81.7
+                 A2 2 0 0122 16.92z"/>
+      </svg>
+      Ligar
+    `;
+    dialPart.addEventListener('mouseenter', () => dialPart.style.filter = 'brightness(1.15)');
+    dialPart.addEventListener('mouseleave', () => dialPart.style.filter = 'brightness(1)');
+    dialPart.addEventListener('click', () => {
+      if (!isConfigured()) { openModal(); return; }
+      const phone = extractPhone();
+      if (!phone) {
+        showToast('⚠️ Telefone não encontrado nesta tela.', 'error');
+        console.warn('[Api4com] Debug:', {
+          telLinks: document.querySelectorAll('a[href^="tel:"]').length,
+          telInputs: document.querySelectorAll('input[type="tel"]').length,
+          e164: (document.body.innerText||'').match(/\+55[\d\s\(\)\-]{8,}/g),
+        });
+        return;
+      }
+      doCall(phone);
+    });
+
+    /* Parte direita: ⚙️ */
+    const cfgPart = document.createElement('button');
+    Object.assign(cfgPart.style, {
+      display:        'inline-flex',
+      alignItems:     'center',
+      justifyContent: 'center',
+      padding:        '0 10px',
+      height:         '100%',
+      background:     'linear-gradient(135deg,#1e3a8a,#2563eb)',
+      color:          '#fff',
+      border:         'none',
+      cursor:         'pointer',
+      transition:     'filter 0.15s',
+    });
+    cfgPart.title = 'Configurar Api4com';
+    cfgPart.innerHTML = `
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2.2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83
+                 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33
+                 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09
+                 A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06
+                 a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15
+                 a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09
+                 A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06
+                 a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68
+                 a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09
+                 a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06
+                 a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9
+                 a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09
+                 a1.65 1.65 0 00-1.51 1z"/>
+      </svg>
+    `;
+    cfgPart.addEventListener('mouseenter', () => cfgPart.style.filter = 'brightness(1.15)');
+    cfgPart.addEventListener('mouseleave', () => cfgPart.style.filter = 'brightness(1)');
+    cfgPart.addEventListener('click', openModal);
+
+    wrap.appendChild(dialPart);
+    wrap.appendChild(cfgPart);
+    anchor.parentNode.insertBefore(wrap, anchor);
+    console.log('[Api4com v4.1] Botão injetado ✓');
   }
 
   function removeButton() {
-    var el = document.getElementById(BTN_ID);
+    const el = document.getElementById(WRAP_ID);
     if (el) el.remove();
   }
 
   /* ─── SPA Observer + Init ────────────────────────────────── */
-  var lastUrl = location.href;
-  var timer   = null;
+  let lastUrl = location.href;
+  let timer   = null;
 
   function schedule() {
     clearTimeout(timer);
-    timer = setTimeout(function() {
+    timer = setTimeout(() => {
       if (isRelevantPage()) injectButton();
       else removeButton();
     }, 800);
   }
 
-  new MutationObserver(function() {
+  new MutationObserver(() => {
     if (location.href !== lastUrl) {
       lastUrl = location.href; removeButton(); schedule(); return;
     }
-    if (isRelevantPage() && !document.getElementById(BTN_ID)) schedule();
+    if (isRelevantPage() && !document.getElementById(WRAP_ID)) schedule();
   }).observe(document.body, { childList: true, subtree: true });
 
   function init() {
-    loadSession();
-    createPanel();
     if (isRelevantPage()) {
       injectButton();
-      if (state.screen === 'connecting') {
-        setTimeout(function() { initSip(); }, 1000);
-      }
+      if (!isConfigured()) setTimeout(openModal, 1500);
     }
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
+  document.readyState === 'loading'
+    ? document.addEventListener('DOMContentLoaded', init)
+    : init();
 
-  console.log('[Api4com GHL] v5.2 — JsSIP debug ✓');
+  console.log('[Api4com GHL] v4.1 ✓');
 })();
