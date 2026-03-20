@@ -1,6 +1,6 @@
 /**
  * ============================================================
- *  Api4com Click-to-Call — Integração GHL Whitelabel v3.1
+ *  Api4com Click-to-Call — Integração GHL Whitelabel v3.3
  *
  *  INSTALAÇÃO:
  *  Settings > Whitelabel > Custom Scripts:
@@ -26,7 +26,7 @@
   }
   function isConfigured() {
     const c = getConfig();
-    return !!(c.extension); // token removido: openDialer usa postMessage, não a API REST
+    return !!(c.extension);
   }
 
   /* ─── Detecção de página relevante ──────────────────────── */
@@ -139,20 +139,25 @@
 
   /* ─── Abre o Webphone com o número pré-carregado ──────────────────────────
    *
-   *  Usa window.postMessage para comunicar com o content script
-   *  da extensão Api4com — mesmo mecanismo das integrações oficiais.
-   *  Isso apenas abre o discador com o número preenchido.
-   *  O agente ainda precisa clicar em "Ligar" no Webphone.
+   *  Cria um link tel: e clica nele programaticamente.
+   *  O Chrome detecta o protocolo tel: e passa para a extensão Api4com,
+   *  que registra a si mesma como handler — abrindo o discador com o
+   *  número já preenchido, mas SEM iniciar a chamada automaticamente.
+   *
+   *  É exatamente assim que as integrações oficiais (Kommo, Pipedrive etc.)
+   *  funcionam quando implementadas via botão de click-to-call na página.
    * ─────────────────────────────────────────────────────────────────────── */
   function openDialer(phone) {
-    const payload = { phone };
-    const eventTypes = ['api4com:open', 'api4com:dial', 'SOFTPHONE_CALL'];
-    eventTypes.forEach(type => {
-      window.postMessage({ type, ...payload }, '*');
-      window.dispatchEvent(new CustomEvent(type, { detail: payload }));
-    });
-    showToast('📞 Webphone aberto — ' + phone, 'success');
-    console.log('[Api4com] openDialer enviado para', phone);
+    // Cria link tel: temporário e clica
+    const a = document.createElement('a');
+    a.href = 'tel:' + phone;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => a.remove(), 500);
+
+    showToast('📞 Abrindo Webphone com ' + phone, 'success');
+    console.log('[Api4com] tel: link clicado para', phone);
   }
 
   /* ─── Toast ─────────────────────────────────────────────── */
@@ -233,6 +238,19 @@
                    font-size:14px;outline:none;"/>
         </label>
 
+        <label style="display:block;margin-bottom:24px;">
+          <span style="font-size:13px;font-weight:600;color:#374151;
+                       display:block;margin-bottom:5px;">Token de Acesso</span>
+          <span style="font-size:12px;color:#9ca3af;display:block;margin-bottom:5px;">
+            Opcional — necessário apenas para funcionalidades futuras
+          </span>
+          <input id="a4c-token" type="password" value="${cfg.token || ''}"
+            placeholder="Cole aqui seu token…"
+            style="width:100%;box-sizing:border-box;padding:10px 13px;
+                   border:1.5px solid #d1d5db;border-radius:8px;
+                   font-size:14px;outline:none;"/>
+        </label>
+
         <button id="a4c-save"
           style="width:100%;padding:13px;
                  background:linear-gradient(135deg,#1e40af,#3b82f6);
@@ -252,10 +270,11 @@
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
 
     overlay.querySelector('#a4c-save').onclick = () => {
-      const ext = overlay.querySelector('#a4c-ramal').value.trim();
-      const msg = overlay.querySelector('#a4c-msg');
+      const ext   = overlay.querySelector('#a4c-ramal').value.trim();
+      const token = overlay.querySelector('#a4c-token')?.value.trim() || '';
+      const msg   = overlay.querySelector('#a4c-msg');
       if (!ext) { msg.style.color='#dc2626'; msg.textContent='⚠️ Informe o Ramal.'; return; }
-      saveConfig({ extension: ext });
+      saveConfig({ extension: ext, token });
       msg.style.color = '#16a34a';
       msg.textContent = '✅ Configuração salva!';
       setTimeout(() => overlay.remove(), 1200);
@@ -491,5 +510,5 @@
     init();
   }
 
-  console.log('[Api4com GHL] v3.2 carregado ✓');
+  console.log('[Api4com GHL] v3.3 carregado ✓');
 })();
