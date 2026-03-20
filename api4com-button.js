@@ -169,10 +169,18 @@
   }
 
   /* ─── SIP ────────────────────────────────────────────────── */
+  var _sipTimeout = null;
+
   function initSip() {
     return loadLibwebphone().then(function() {
       var ext    = state.extension;
       var domain = ext.domain;
+
+      console.group('[Api4com] Iniciando SIP');
+      console.log('Domínio:', domain);
+      console.log('Ramal:', ext.ramal);
+      console.log('WSS:', 'wss://' + domain + ':6443');
+      console.groupEnd();
 
       if (!document.getElementById('a4c-audio-ctx')) {
         var d = document.createElement('div');
@@ -181,9 +189,20 @@
       }
 
       if (state.webphone) {
-        try { state.webphone.getUserAgent() && state.webphone.getUserAgent().stop && state.webphone.getUserAgent().stop(); } catch(e) {}
+        try { var ua = state.webphone.getUserAgent(); if (ua && ua.stop) ua.stop(); } catch(e) {}
         state.webphone = null;
       }
+
+      // Timeout de 20s: se não registrar, mostra erro com diagnóstico
+      clearTimeout(_sipTimeout);
+      _sipTimeout = setTimeout(function() {
+        if (state.sipStatus !== 'online') {
+          console.error('[Api4com] Timeout SIP — sem resposta do servidor em 20s');
+          state.sipStatus = 'offline';
+          state.screen = 'error';
+          render();
+        }
+      }, 20000);
 
       try {
         state.webphone = new window.libwebphone({
@@ -210,7 +229,14 @@
           },
         });
 
+        // Loga TODOS os eventos para diagnóstico
+        state.webphone.onAny && state.webphone.onAny(function(event) {
+          console.log('[Api4com SIP event]', event);
+        });
+
         state.webphone.on('userAgent.registered', function() {
+          clearTimeout(_sipTimeout);
+          console.log('[Api4com] SIP registrado com sucesso ✓');
           state.sipStatus = 'online';
           state.screen    = 'dialer';
           var phone = extractPhone();
@@ -219,13 +245,16 @@
         });
 
         state.webphone.on('userAgent.unregistered', function() {
+          console.warn('[Api4com] SIP desregistrado');
           state.sipStatus = 'offline'; render();
         });
 
-        state.webphone.on('userAgent.registrationFailed', function() {
+        state.webphone.on('userAgent.registrationFailed', function(lwp, data) {
+          clearTimeout(_sipTimeout);
+          console.error('[Api4com] Falha no registro SIP:', data);
           state.sipStatus = 'offline';
-          showMsg('Falha no registro SIP. Verifique as credenciais em Configurações.', 'error');
-          state.screen = 'settings'; render();
+          state.screen = 'error';
+          render();
         });
 
         state.webphone.on('call.created', function(lwp, call) {
@@ -245,12 +274,14 @@
         });
 
       } catch(e) {
-        console.error('[Api4com] Erro SIP:', e);
-        showMsg('Erro ao conectar ao servidor SIP.', 'error');
+        clearTimeout(_sipTimeout);
+        console.error('[Api4com] Erro ao instanciar libwebphone:', e);
+        state.screen = 'error'; render();
       }
     }).catch(function(e) {
-      console.error('[Api4com] Erro ao carregar libwebphone:', e);
-      showMsg('Erro ao carregar biblioteca de voz.', 'error');
+      clearTimeout(_sipTimeout);
+      console.error('[Api4com] Erro ao carregar libwebphone.js:', e);
+      state.screen = 'error'; render();
     });
   }
 
@@ -406,10 +437,32 @@
       '</div>';
   }
 
+  function renderError() {
+    var ext = state.extension;
+    return hdr('Api4com — Erro de Conexão') +
+      '<div style="padding:20px 16px;">' +
+      '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:14px;margin-bottom:16px;font-size:13px;color:#dc2626;line-height:1.7;">' +
+      '<strong>Não foi possível conectar ao servidor SIP.</strong><br>' +
+      'Possíveis causas:<br>' +
+      '• Ramal ou senha incorretos<br>' +
+      '• Conexão bloqueada pelo navegador<br>' +
+      '• Servidor SIP temporariamente indisponível' +
+      '</div>' +
+      '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:11px;color:#6b7280;font-family:monospace;word-break:break-all;">' +
+      'WSS: wss://' + (ext && ext.domain || '?') + ':6443<br>' +
+      'Ramal: ' + (ext && ext.ramal || '?') +
+      '</div>' +
+      '<p style="font-size:12px;color:#6b7280;margin:0 0 14px;line-height:1.6;">Abra o Console do Chrome (F12) e procure por erros <strong>[Api4com]</strong> para diagnóstico detalhado.</p>' +
+      '<button id="a4c-retry-sip" style="' + S.btnPrimary + 'margin-bottom:10px;">Tentar novamente</button>' +
+      '<button id="a4c-goto-settings" style="' + S.btnSecondary + 'margin-bottom:10px;">Verificar credenciais</button>' +
+      '<button id="a4c-logout" style="width:100%;padding:10px;background:#fff;border:1.5px solid #fca5a5;border-radius:10px;color:#dc2626;font-size:13px;font-weight:600;cursor:pointer;font-family:system-ui,sans-serif;">Sair da conta</button>' +
+      '</div>';
+  }
+
   function render() {
     var panel = document.getElementById(PANEL_ID);
     if (!panel) return;
-    var screens = { login:renderLogin, connecting:renderConnecting, dialer:renderDialer, calling:renderCalling, settings:renderSettings };
+    var screens = { login:renderLogin, connecting:renderConnecting, dialer:renderDialer, calling:renderCalling, settings:renderSettings, error:renderError };
     panel.innerHTML = (screens[state.screen] || renderLogin)();
     bindEvents();
   }
@@ -428,6 +481,8 @@
     on('a4c-back',         'click', function() { state.screen='dialer';   render(); });
     on('a4c-login-btn',    'click', doLogin);
     on('a4c-logout',       'click', doLogout);
+    on('a4c-retry-sip',    'click', function() { state.screen='connecting'; render(); initSip(); });
+    on('a4c-goto-settings','click', function() { state.screen='settings';   render(); });
     on('a4c-logout-sm',    'click', doLogout);
     on('a4c-dial-btn',     'click', function() {
       if (state.sipStatus !== 'online') return;
