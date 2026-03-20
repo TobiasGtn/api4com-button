@@ -1,6 +1,6 @@
 /**
  * ============================================================
- *  Api4com Click-to-Call — Integração GHL Whitelabel v3.0
+ *  Api4com Click-to-Call — Integração GHL Whitelabel v3.1
  *
  *  INSTALAÇÃO:
  *  Settings > Whitelabel > Custom Scripts:
@@ -26,7 +26,7 @@
   }
   function isConfigured() {
     const c = getConfig();
-    return !!(c.token && c.extension);
+    return !!(c.extension); // token removido: openDialer usa postMessage, não a API REST
   }
 
   /* ─── Detecção de página relevante ──────────────────────── */
@@ -137,34 +137,22 @@
     return (num.startsWith('+') && num.length >= 12 && num.length <= 14) ? num : null;
   }
 
-  /* ─── API: realizar chamada ─────────────────────────────── */
-  async function makeCall(phone) {
-    const cfg = getConfig();
-    showToast('⏳ Iniciando chamada para ' + phone + '…', 'info');
-    try {
-      const resp = await fetch(API_BASE + '/dialer', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': cfg.token,
-        },
-        body: JSON.stringify({
-          extension: cfg.extension,
-          phone,
-          metadata: { gateway: 'ghl-whitelabel' },
-        }),
-      });
-      const data = await resp.json();
-      if (resp.ok && data.id) {
-        showToast('✅ Chamada iniciada! Atenda o Webphone.', 'success');
-      } else {
-        showToast('❌ ' + (data.message || data.error || 'Erro na chamada'), 'error');
-        console.error('[Api4com] Resposta da API:', data);
-      }
-    } catch (e) {
-      showToast('❌ Falha de conexão com a Api4com.', 'error');
-      console.error('[Api4com] Erro de rede:', e);
-    }
+  /* ─── Abre o Webphone com o número pré-carregado ──────────────────────────
+   *
+   *  Usa window.postMessage para comunicar com o content script
+   *  da extensão Api4com — mesmo mecanismo das integrações oficiais.
+   *  Isso apenas abre o discador com o número preenchido.
+   *  O agente ainda precisa clicar em "Ligar" no Webphone.
+   * ─────────────────────────────────────────────────────────────────────── */
+  function openDialer(phone) {
+    const payload = { phone };
+    const eventTypes = ['api4com:open', 'api4com:dial', 'SOFTPHONE_CALL'];
+    eventTypes.forEach(type => {
+      window.postMessage({ type, ...payload }, '*');
+      window.dispatchEvent(new CustomEvent(type, { detail: payload }));
+    });
+    showToast('📞 Webphone aberto — ' + phone, 'success');
+    console.log('[Api4com] openDialer enviado para', phone);
   }
 
   /* ─── Toast ─────────────────────────────────────────────── */
@@ -230,22 +218,10 @@
         <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;
                     padding:14px;margin-bottom:20px;font-size:13px;
                     color:#1e40af;line-height:1.75;">
-          <strong>Onde encontrar suas credenciais?</strong><br>
-          1. Acesse <a href="https://app.api4com.com" target="_blank"
-               style="color:#1d4ed8;font-weight:600;">app.api4com.com</a><br>
-          2. Vá em seu perfil → <strong>Tokens de Acesso</strong> → Criar com TTL = -1<br>
-          3. O <strong>Ramal</strong> aparece no Webphone Chrome ao lado do ícone verde
+          <strong>Como encontrar seu Ramal?</strong><br>
+          Abra o Webphone Api4com no Chrome (ícone da extensão).<br>
+          O número do <strong>Ramal</strong> aparece ao lado do ícone verde de status.
         </div>
-
-        <label style="display:block;margin-bottom:14px;">
-          <span style="font-size:13px;font-weight:600;color:#374151;
-                       display:block;margin-bottom:5px;">Token de Acesso</span>
-          <input id="a4c-token" type="password" value="${cfg.token || ''}"
-            placeholder="Cole aqui seu token…"
-            style="width:100%;box-sizing:border-box;padding:10px 13px;
-                   border:1.5px solid #d1d5db;border-radius:8px;
-                   font-size:14px;outline:none;"/>
-        </label>
 
         <label style="display:block;margin-bottom:24px;">
           <span style="font-size:13px;font-weight:600;color:#374151;
@@ -276,12 +252,10 @@
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
 
     overlay.querySelector('#a4c-save').onclick = () => {
-      const token = overlay.querySelector('#a4c-token').value.trim();
-      const ext   = overlay.querySelector('#a4c-ramal').value.trim();
-      const msg   = overlay.querySelector('#a4c-msg');
-      if (!token) { msg.style.color='#dc2626'; msg.textContent='⚠️ Informe o Token.'; return; }
-      if (!ext)   { msg.style.color='#dc2626'; msg.textContent='⚠️ Informe o Ramal.'; return; }
-      saveConfig({ token, extension: ext });
+      const ext = overlay.querySelector('#a4c-ramal').value.trim();
+      const msg = overlay.querySelector('#a4c-msg');
+      if (!ext) { msg.style.color='#dc2626'; msg.textContent='⚠️ Informe o Ramal.'; return; }
+      saveConfig({ extension: ext });
       msg.style.color = '#16a34a';
       msg.textContent = '✅ Configuração salva!';
       setTimeout(() => overlay.remove(), 1200);
@@ -289,7 +263,7 @@
 
     // Focus automático
     setTimeout(() => {
-      const inp = overlay.querySelector(cfg.token ? '#a4c-ramal' : '#a4c-token');
+      const inp = overlay.querySelector('#a4c-ramal');
       inp && inp.focus();
     }, 100);
   }
@@ -417,7 +391,7 @@
 
     const dialBtn = buildButton(
       BTN_ID,
-      'Ligar Api4com',
+      'Ligar',
       `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
            stroke="currentColor" stroke-width="2.5"
            stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0">
@@ -443,7 +417,7 @@
           showToast('⚠️ Telefone não encontrado. Abra a ficha do contato e tente novamente.', 'error');
           return;
         }
-        makeCall(phone);
+        openDialer(phone);
       }
     );
 
@@ -517,5 +491,5 @@
     init();
   }
 
-  console.log('[Api4com GHL] v3.0 carregado ✓');
+  console.log('[Api4com GHL] v3.2 carregado ✓');
 })();
