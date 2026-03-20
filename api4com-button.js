@@ -1,6 +1,6 @@
 /**
  * ============================================================
- *  Api4com Click-to-Call — Integração GHL Whitelabel v3.3
+ *  Api4com Click-to-Call — Integração GHL Whitelabel v4.0
  *
  *  INSTALAÇÃO:
  *  Settings > Whitelabel > Custom Scripts:
@@ -11,12 +11,11 @@
 (function () {
   'use strict';
 
-  const STORAGE_KEY  = 'api4com_cfg_v1';
-  const API_BASE     = 'https://api.api4com.com/api/v1';
-  const BTN_ID       = 'api4com-dial-btn';
-  const CFG_BTN_ID   = 'api4com-cfg-btn';
+  const STORAGE_KEY = 'api4com_cfg_v1';
+  const API_BASE    = 'https://api.api4com.com/api/v1';
+  const WRAP_ID     = 'api4com-btn-wrap';
 
-  /* ─── Config (localStorage) ─────────────────────────────── */
+  /* ─── Config ─────────────────────────────────────────────── */
   function getConfig() {
     try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
     catch { return {}; }
@@ -26,30 +25,17 @@
   }
   function isConfigured() {
     const c = getConfig();
-    return !!(c.extension);
+    return !!(c.token && c.extension);
   }
 
-  /* ─── Detecção de página relevante ──────────────────────── */
+  /* ─── Página relevante ───────────────────────────────────── */
   function isRelevantPage() {
-    const url = location.href;
-    return url.includes('/conversations') || url.includes('/contacts');
+    return location.href.includes('/conversations') || location.href.includes('/contacts');
   }
 
-  /* ─── Extração de telefone (corrigida) ───────────────────
-   *
-   *  Estratégias em ordem de confiabilidade:
-   *  1. Links <a href="tel:..."> — mais confiável
-   *  2. <input type="tel"> com valor preenchido
-   *  3. Campos rotulados como "Telefone / Phone / Celular"
-   *  4. Texto com formato E.164 explícito (+55...)
-   *
-   *  O que NÃO fazemos mais:
-   *  - Varrer todo o texto da página (capturava timestamps e badges)
-   *  - Aceitar qualquer sequência de 10+ dígitos
-   * ──────────────────────────────────────────────────────── */
+  /* ─── Extração de telefone ───────────────────────────────── */
   function extractPhone() {
-
-    // 1) Link tel: (o GHL renderiza isso na ficha do contato)
+    // 1) Link tel:
     const telLink = document.querySelector('a[href^="tel:"]');
     if (telLink) {
       const p = sanitize(telLink.href.replace('tel:', ''));
@@ -63,65 +49,45 @@
       if (p) return p;
     }
 
-    // 3) Campos com rótulo de telefone
-    //    O GHL renderiza "Telefone" como label/span antes do valor
+    // 3) Campos rotulados como telefone
     const labelKeywords = ['telefone', 'phone', 'celular', 'mobile', 'fone', 'whatsapp'];
-    const allEls = Array.from(document.querySelectorAll('label, span, p, div, td, th'));
-
-    for (const el of allEls) {
-      const txt = el.textContent.trim().toLowerCase();
-      if (!labelKeywords.includes(txt)) continue;
-
-      // Procura o valor no elemento seguinte
+    for (const el of document.querySelectorAll('label, span, p, div, td, th')) {
+      if (!labelKeywords.includes(el.textContent.trim().toLowerCase())) continue;
       const candidates = [
         el.nextElementSibling,
         el.parentElement?.nextElementSibling,
         el.closest('tr')?.nextElementSibling,
       ].filter(Boolean);
-
-      for (const cand of candidates) {
-        const p = extractBrazilianPhone(cand.textContent);
+      for (const c of candidates) {
+        const p = extractBR(c.textContent);
         if (p) return p;
       }
     }
 
-    // 4) Formato E.164 explícito (+55XXXXXXXXXXX) em qualquer lugar
-    //    Só aceita se começa com +55 — evita ambiguidade com outros números
-    const allText = document.body.innerText || '';
-    const e164 = allText.match(/\+55\s?\(?\d{2}\)?\s?\d{4,5}[-\s]?\d{4}/g);
-    if (e164 && e164.length > 0) {
-      const p = sanitize(e164[0]);
+    // 4) Formato +55 explícito no texto da página
+    const match = (document.body.innerText || '').match(/\+55\s?\(?\d{2}\)?\s?\d{4,5}[-\s]?\d{4}/);
+    if (match) {
+      const p = sanitize(match[0]);
       if (p) return p;
     }
 
     return null;
   }
 
-  /* Extrai número brasileiro de um bloco de texto */
-  function extractBrazilianPhone(text) {
+  function extractBR(text) {
     if (!text) return null;
-
-    // Exclui claramente timestamps: "04:45 PM", "3:47 PM", "16:30"
-    if (/^\s*\d{1,2}:\d{2}(\s*(AM|PM))?\s*$/.test(text)) return null;
-
-    // Exclui badges/contagens curtas: "88", "1", "2"
-    if (/^\s*\d{1,3}\s*$/.test(text)) return null;
-
-    // Padrões de telefone brasileiro (10 ou 11 dígitos com DDD)
+    if (/^\s*\d{1,3}\s*$/.test(text)) return null;        // badges
+    if (/^\s*\d{1,2}:\d{2}(\s*(AM|PM))?\s*$/.test(text)) return null; // timestamps
     const patterns = [
-      /\+55\s?\(?\d{2}\)?\s?\d{4,5}[-\s]?\d{4}/,  // +55 (48) 99999-9999
-      /\(?\d{2}\)?\s?\d{5}[-\s]?\d{4}/,             // (48) 99999-9999
-      /\(?\d{2}\)?\s?\d{4}[-\s]?\d{4}/,             // (48) 9999-9999
+      /\+55\s?\(?\d{2}\)?\s?\d{4,5}[-\s]?\d{4}/,
+      /\(?\d{2}\)?\s?\d{5}[-\s]?\d{4}/,
+      /\(?\d{2}\)?\s?\d{4}[-\s]?\d{4}/,
     ];
-
-    for (const pattern of patterns) {
-      const match = text.match(pattern);
-      if (match) {
-        const cleaned = match[0].replace(/\D/g, '');
-        // Valida: com DDD deve ter 10 ou 11 dígitos (sem +55) ou 12/13 (com +55)
-        if (cleaned.length >= 10 && cleaned.length <= 13) {
-          return sanitize(match[0]);
-        }
+    for (const pat of patterns) {
+      const m = text.match(pat);
+      if (m) {
+        const d = m[0].replace(/\D/g, '');
+        if (d.length >= 10 && d.length <= 13) return sanitize(m[0]);
       }
     }
     return null;
@@ -129,38 +95,45 @@
 
   function sanitize(raw) {
     if (!raw) return null;
-    let num = raw.replace(/[^\d+]/g, '');
-    if (!num.startsWith('+')) {
-      if (num.startsWith('55') && num.length >= 12) num = '+' + num;
-      else if (num.length === 10 || num.length === 11) num = '+55' + num;
+    let n = raw.replace(/[^\d+]/g, '');
+    if (!n.startsWith('+')) {
+      if (n.startsWith('55') && n.length >= 12) n = '+' + n;
+      else if (n.length === 10 || n.length === 11) n = '+55' + n;
     }
-    return (num.startsWith('+') && num.length >= 12 && num.length <= 14) ? num : null;
+    return (n.startsWith('+') && n.length >= 12 && n.length <= 14) ? n : null;
   }
 
-  /* ─── Abre o Webphone com o número pré-carregado ──────────────────────────
-   *
-   *  Cria um link tel: e clica nele programaticamente.
-   *  O Chrome detecta o protocolo tel: e passa para a extensão Api4com,
-   *  que registra a si mesma como handler — abrindo o discador com o
-   *  número já preenchido, mas SEM iniciar a chamada automaticamente.
-   *
-   *  É exatamente assim que as integrações oficiais (Kommo, Pipedrive etc.)
-   *  funcionam quando implementadas via botão de click-to-call na página.
-   * ─────────────────────────────────────────────────────────────────────── */
-  function openDialer(phone) {
-    // Cria link tel: temporário e clica
-    const a = document.createElement('a');
-    a.href = 'tel:' + phone;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => a.remove(), 500);
-
-    showToast('📞 Abrindo Webphone com ' + phone, 'success');
-    console.log('[Api4com] tel: link clicado para', phone);
+  /* ─── Chamada via POST /dialer ───────────────────────────── */
+  async function doCall(phone) {
+    const cfg = getConfig();
+    showToast('⏳ Ligando para ' + phone + '…', 'info');
+    try {
+      const resp = await fetch(API_BASE + '/dialer', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': cfg.token,
+        },
+        body: JSON.stringify({
+          extension: cfg.extension,
+          phone,
+          metadata: { gateway: 'ghl-whitelabel' },
+        }),
+      });
+      const data = await resp.json();
+      if (resp.ok && data.id) {
+        showToast('✅ Chamada iniciada! Atenda o Webphone.', 'success');
+      } else {
+        showToast('❌ ' + (data.message || data.error || 'Erro na chamada'), 'error');
+        console.error('[Api4com]', data);
+      }
+    } catch (e) {
+      showToast('❌ Falha de conexão.', 'error');
+      console.error('[Api4com]', e);
+    }
   }
 
-  /* ─── Toast ─────────────────────────────────────────────── */
+  /* ─── Toast ──────────────────────────────────────────────── */
   function showToast(msg, type) {
     const colors = { info: '#2563eb', success: '#16a34a', error: '#dc2626' };
     let t = document.getElementById('api4com-toast');
@@ -173,20 +146,19 @@
       position: 'fixed', bottom: '24px', left: '50%',
       transform: 'translateX(-50%)',
       background: colors[type] || colors.info,
-      color: '#fff', padding: '11px 22px',
-      borderRadius: '10px', fontSize: '13.5px',
+      color: '#fff', padding: '10px 20px',
+      borderRadius: '10px', fontSize: '13px',
       fontFamily: 'system-ui,sans-serif', fontWeight: '500',
-      boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
+      boxShadow: '0 4px 20px rgba(0,0,0,0.22)',
       zIndex: '2147483647', opacity: '1',
-      transition: 'opacity 0.4s', maxWidth: '360px',
-      textAlign: 'center', pointerEvents: 'none',
+      transition: 'opacity 0.4s', pointerEvents: 'none',
     });
     t.textContent = msg;
     clearTimeout(t._t);
     t._t = setTimeout(() => { t.style.opacity = '0'; }, 4500);
   }
 
-  /* ─── Modal de configuração ─────────────────────────────── */
+  /* ─── Modal de configuração ──────────────────────────────── */
   function openModal() {
     if (document.getElementById('api4com-modal')) return;
     const cfg = getConfig();
@@ -195,7 +167,7 @@
     overlay.id = 'api4com-modal';
     Object.assign(overlay.style, {
       position: 'fixed', inset: '0',
-      background: 'rgba(0,0,0,0.55)',
+      background: 'rgba(0,0,0,0.5)',
       backdropFilter: 'blur(4px)',
       zIndex: '2147483646',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -204,13 +176,13 @@
 
     overlay.innerHTML = `
       <div style="background:#fff;border-radius:16px;padding:32px;width:390px;
-                  box-shadow:0 24px 60px rgba(0,0,0,0.3);">
+                  box-shadow:0 24px 60px rgba(0,0,0,0.28);">
 
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:22px;">
-          <div style="width:42px;height:42px;
+          <div style="width:42px;height:42px;flex-shrink:0;
                       background:linear-gradient(135deg,#1e40af,#3b82f6);
                       border-radius:11px;display:flex;align-items:center;
-                      justify-content:center;font-size:20px;flex-shrink:0;">📞</div>
+                      justify-content:center;font-size:20px;">📞</div>
           <div>
             <div style="font-size:16px;font-weight:700;color:#111;">Api4com</div>
             <div style="font-size:12px;color:#6b7280;">Configuração do agente</div>
@@ -222,17 +194,19 @@
 
         <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;
                     padding:14px;margin-bottom:20px;font-size:13px;
-                    color:#1e40af;line-height:1.75;">
-          <strong>Como encontrar seu Ramal?</strong><br>
-          Abra o Webphone Api4com no Chrome (ícone da extensão).<br>
-          O número do <strong>Ramal</strong> aparece ao lado do ícone verde de status.
+                    color:#1e40af;line-height:1.8;">
+          <strong>Onde encontrar suas credenciais?</strong><br>
+          1. Acesse <a href="https://app.api4com.com" target="_blank"
+               style="color:#1d4ed8;font-weight:600;">app.api4com.com</a><br>
+          2. Perfil → <strong>Tokens de Acesso</strong> → criar com TTL = -1<br>
+          3. O <strong>Ramal</strong> aparece no Webphone Chrome (ícone verde)
         </div>
 
-        <label style="display:block;margin-bottom:24px;">
+        <label style="display:block;margin-bottom:14px;">
           <span style="font-size:13px;font-weight:600;color:#374151;
-                       display:block;margin-bottom:5px;">Número do Ramal</span>
-          <input id="a4c-ramal" type="text" value="${cfg.extension || ''}"
-            placeholder="Ex: 1001"
+                       display:block;margin-bottom:5px;">Token de Acesso</span>
+          <input id="a4c-token" type="password" value="${cfg.token || ''}"
+            placeholder="Cole aqui seu token…"
             style="width:100%;box-sizing:border-box;padding:10px 13px;
                    border:1.5px solid #d1d5db;border-radius:8px;
                    font-size:14px;outline:none;"/>
@@ -240,12 +214,9 @@
 
         <label style="display:block;margin-bottom:24px;">
           <span style="font-size:13px;font-weight:600;color:#374151;
-                       display:block;margin-bottom:5px;">Token de Acesso</span>
-          <span style="font-size:12px;color:#9ca3af;display:block;margin-bottom:5px;">
-            Opcional — necessário apenas para funcionalidades futuras
-          </span>
-          <input id="a4c-token" type="password" value="${cfg.token || ''}"
-            placeholder="Cole aqui seu token…"
+                       display:block;margin-bottom:5px;">Número do Ramal</span>
+          <input id="a4c-ramal" type="text" value="${cfg.extension || ''}"
+            placeholder="Ex: 1001"
             style="width:100%;box-sizing:border-box;padding:10px 13px;
                    border:1.5px solid #d1d5db;border-radius:8px;
                    font-size:14px;outline:none;"/>
@@ -270,148 +241,96 @@
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
 
     overlay.querySelector('#a4c-save').onclick = () => {
+      const token = overlay.querySelector('#a4c-token').value.trim();
       const ext   = overlay.querySelector('#a4c-ramal').value.trim();
-      const token = overlay.querySelector('#a4c-token')?.value.trim() || '';
       const msg   = overlay.querySelector('#a4c-msg');
-      if (!ext) { msg.style.color='#dc2626'; msg.textContent='⚠️ Informe o Ramal.'; return; }
-      saveConfig({ extension: ext, token });
-      msg.style.color = '#16a34a';
-      msg.textContent = '✅ Configuração salva!';
+      if (!token) { msg.style.color = '#dc2626'; msg.textContent = '⚠️ Informe o Token.'; return; }
+      if (!ext)   { msg.style.color = '#dc2626'; msg.textContent = '⚠️ Informe o Ramal.'; return; }
+      saveConfig({ token, extension: ext });
+      msg.style.color   = '#16a34a';
+      msg.textContent   = '✅ Configuração salva!';
       setTimeout(() => overlay.remove(), 1200);
     };
 
-    // Focus automático
     setTimeout(() => {
-      const inp = overlay.querySelector('#a4c-ramal');
-      inp && inp.focus();
-    }, 100);
+      overlay.querySelector(cfg.token ? '#a4c-ramal' : '#a4c-token').focus();
+    }, 80);
   }
 
-  /* ─── Criação dos botões ─────────────────────────────────
+  /* ─── Botão split [📞 Ligar | ⚙️] ───────────────────────────
    *
-   *  Posição: ao lado do botão verde "Call" (WA) do GHL,
-   *  que fica no header da conversa/contato aberto.
-   *
-   *  Seletores tentados em ordem:
-   *  1. Botão com texto "Call" que tem classe/style verde (Stevo WA btn)
-   *  2. Qualquer botão com "Call" no texto visível no header
-   *  3. O header da conversa (container de ações)
-   *
-   *  O botão é inserido ANTES do elemento encontrado.
-   * ──────────────────────────────────────────────────────── */
-  function findCallButtonAnchor() {
-    // Tenta encontrar o botão verde "Call" do WA (Stevo ou nativo)
-    const allBtns = Array.from(document.querySelectorAll('button, a'));
-
-    // Prioridade 1: botão com exatamente "Call" no texto e algum estilo verde
-    for (const btn of allBtns) {
+   *  Um único elemento div com dois cliques distintos.
+   *  Altura e estilo alinhados ao botão verde do Stevo (≈32px).
+   *  Inserido ANTES do botão Call (WA) no header da conversa.
+   * ──────────────────────────────────────────────────────────── */
+  function findAnchor() {
+    // Prioridade 1: botão verde "Call" do Stevo
+    for (const btn of document.querySelectorAll('button')) {
       const text = btn.textContent.trim();
-      if (text === 'Call' || text === '📞 Call' || text.endsWith('Call')) {
-        const style = window.getComputedStyle(btn);
-        const bg = style.backgroundColor;
-        // Verde aproximado em RGB
-        if (bg.includes('rgb(') ) {
-          const [r, g, b] = bg.match(/\d+/g).map(Number);
-          if (g > r && g > b && g > 100) return btn; // predominantemente verde
+      if (text === 'Call' || text.endsWith('Call')) {
+        const bg = window.getComputedStyle(btn).backgroundColor;
+        const rgb = bg.match(/\d+/g);
+        if (rgb) {
+          const [r, g, b] = rgb.map(Number);
+          if (g > r && g > b && g > 80) return btn;
         }
       }
     }
-
-    // Prioridade 2: botão com ID/classe contendo "call" ou "wa"
-    const byClass = document.querySelector(
-      'button[id*="call"], button[class*="call"], button[id*="wa-"], button[class*="waCall"]'
+    // Prioridade 2: classe/id com "call" ou "wa"
+    const byAttr = document.querySelector(
+      'button[id*="call"], button[class*="call"], button[id*="wa-"]'
     );
-    if (byClass) return byClass;
-
-    // Prioridade 3: container de ações no header da conversa
-    const headerActions = document.querySelector(
-      '[class*="header-action"], [class*="headerAction"], [class*="conversation-action"]'
-    );
-    if (headerActions) return headerActions.firstElementChild || headerActions;
+    if (byAttr) return byAttr;
 
     return null;
   }
 
-  function buildButton(id, label, icon, onClick) {
-    const btn = document.createElement('button');
-    btn.id = id;
-    Object.assign(btn.style, {
-      display:       'inline-flex',
-      alignItems:    'center',
-      gap:           '7px',
-      padding:       '6px 14px',
-      height:        '36px',
-      background:    'linear-gradient(135deg, #1e3a8a, #2563eb)',
-      color:         '#fff',
-      border:        'none',
-      borderRadius:  '8px',
-      fontSize:      '13px',
-      fontWeight:    '600',
-      cursor:        'pointer',
-      fontFamily:    'system-ui,-apple-system,sans-serif',
-      boxShadow:     '0 2px 10px rgba(37,99,235,0.45)',
-      letterSpacing: '0.2px',
-      whiteSpace:    'nowrap',
-      transition:    'transform 0.12s, box-shadow 0.12s, opacity 0.12s',
-      marginRight:   '6px',
-      verticalAlign: 'middle',
-    });
-    btn.innerHTML = icon + label;
-    btn.addEventListener('mouseenter', () => {
-      btn.style.transform = 'scale(1.04)';
-      btn.style.boxShadow = '0 4px 16px rgba(37,99,235,0.65)';
-    });
-    btn.addEventListener('mouseleave', () => {
-      btn.style.transform = 'scale(1)';
-      btn.style.boxShadow = '0 2px 10px rgba(37,99,235,0.45)';
-    });
-    btn.addEventListener('click', onClick);
-    return btn;
-  }
+  function injectButton() {
+    if (document.getElementById(WRAP_ID)) return;
 
-  function buildCfgButton(id, onClick) {
-    const btn = document.createElement('button');
-    btn.id = id;
-    btn.title = 'Configurar Api4com';
-    Object.assign(btn.style, {
+    const anchor = findAnchor();
+    if (!anchor) return;
+
+    // Mede a altura real do botão âncora para igualar
+    const anchorH = anchor.offsetHeight || 32;
+
+    /* Wrapper externo — o botão split completo */
+    const wrap = document.createElement('div');
+    wrap.id = WRAP_ID;
+    Object.assign(wrap.style, {
       display:        'inline-flex',
       alignItems:     'center',
-      justifyContent: 'center',
-      width:          '32px',
-      height:         '32px',
-      background:     '#fff',
-      border:         '1.5px solid #e5e7eb',
+      height:         anchorH + 'px',
       borderRadius:   '8px',
-      cursor:         'pointer',
-      fontSize:       '15px',
-      boxShadow:      '0 1px 4px rgba(0,0,0,0.1)',
-      transition:     'transform 0.3s, border-color 0.2s',
+      overflow:       'hidden',
+      boxShadow:      '0 2px 8px rgba(37,99,235,0.35)',
       marginRight:    '8px',
       verticalAlign:  'middle',
+      flexShrink:     '0',
     });
-    btn.textContent = '⚙️';
-    btn.addEventListener('mouseenter', () => {
-      btn.style.transform   = 'rotate(60deg)';
-      btn.style.borderColor = '#3b82f6';
+
+    /* Parte esquerda: ícone + "Ligar" */
+    const dialPart = document.createElement('button');
+    Object.assign(dialPart.style, {
+      display:       'inline-flex',
+      alignItems:    'center',
+      gap:           '6px',
+      padding:       '0 14px',
+      height:        '100%',
+      background:    'linear-gradient(135deg,#1e3a8a,#2563eb)',
+      color:         '#fff',
+      border:        'none',
+      borderRight:   '1px solid rgba(255,255,255,0.2)',
+      fontSize:      '13px',
+      fontWeight:    '600',
+      fontFamily:    'system-ui,-apple-system,sans-serif',
+      cursor:        'pointer',
+      whiteSpace:    'nowrap',
+      letterSpacing: '0.2px',
+      transition:    'filter 0.15s',
     });
-    btn.addEventListener('mouseleave', () => {
-      btn.style.transform   = 'rotate(0deg)';
-      btn.style.borderColor = '#e5e7eb';
-    });
-    btn.addEventListener('click', onClick);
-    return btn;
-  }
-
-  function injectButtons() {
-    if (document.getElementById(BTN_ID)) return;
-
-    const anchor = findCallButtonAnchor();
-    if (!anchor) return; // header ainda não renderizou
-
-    const dialBtn = buildButton(
-      BTN_ID,
-      'Ligar',
-      `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+    dialPart.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
            stroke="currentColor" stroke-width="2.5"
            stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0">
         <path d="M22 16.92v3a2 2 0 01-2.18 2
@@ -425,90 +344,117 @@
                  a2 2 0 012.11-.45
                  c.907.339 1.85.573 2.81.7
                  A2 2 0 0122 16.92z"/>
-      </svg>`,
-      () => {
-        if (!isConfigured()) { openModal(); return; }
-        const phone = extractPhone();
-        if (!phone) {
-          // Debug: mostra o que foi encontrado no console
-          console.warn('[Api4com] Nenhum telefone válido encontrado. Verifique o console.');
-          debugPhoneSearch();
-          showToast('⚠️ Telefone não encontrado. Abra a ficha do contato e tente novamente.', 'error');
-          return;
-        }
-        openDialer(phone);
+      </svg>
+      Ligar
+    `;
+
+    dialPart.addEventListener('mouseenter', () => dialPart.style.filter = 'brightness(1.15)');
+    dialPart.addEventListener('mouseleave', () => dialPart.style.filter = 'brightness(1)');
+    dialPart.addEventListener('click', () => {
+      if (!isConfigured()) { openModal(); return; }
+      const phone = extractPhone();
+      if (!phone) {
+        debugPhone();
+        showToast('⚠️ Telefone não encontrado nesta tela.', 'error');
+        return;
       }
-    );
+      doCall(phone);
+    });
 
-    const cfgBtn = buildCfgButton(CFG_BTN_ID, openModal);
+    /* Parte direita: ⚙️ */
+    const cfgPart = document.createElement('button');
+    Object.assign(cfgPart.style, {
+      display:        'inline-flex',
+      alignItems:     'center',
+      justifyContent: 'center',
+      padding:        '0 10px',
+      height:         '100%',
+      background:     'linear-gradient(135deg,#1e3a8a,#2563eb)',
+      color:          '#fff',
+      border:         'none',
+      fontSize:       '13px',
+      cursor:         'pointer',
+      transition:     'filter 0.15s',
+    });
+    cfgPart.title    = 'Configurar Api4com';
+    cfgPart.innerHTML = `
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2.2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83
+                 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33
+                 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09
+                 A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06
+                 a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15
+                 a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09
+                 A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06
+                 a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68
+                 a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09
+                 a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06
+                 a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9
+                 a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09
+                 a1.65 1.65 0 00-1.51 1z"/>
+      </svg>
+    `;
 
-    // Insere ANTES do anchor (botão Call do WA)
-    anchor.parentNode.insertBefore(dialBtn, anchor);
-    anchor.parentNode.insertBefore(cfgBtn, anchor);
+    cfgPart.addEventListener('mouseenter', () => cfgPart.style.filter = 'brightness(1.15)');
+    cfgPart.addEventListener('mouseleave', () => cfgPart.style.filter = 'brightness(1)');
+    cfgPart.addEventListener('click', openModal);
 
-    console.log('[Api4com] Botões injetados ao lado do botão Call ✓');
+    wrap.appendChild(dialPart);
+    wrap.appendChild(cfgPart);
+    anchor.parentNode.insertBefore(wrap, anchor);
+
+    console.log('[Api4com] Botão injetado ✓ altura=' + anchorH + 'px');
   }
 
-  /* Debug: ajuda a diagnosticar o problema de número errado */
-  function debugPhoneSearch() {
-    console.group('[Api4com] Debug de extração de telefone');
-    console.log('URL atual:', location.href);
-    console.log('Links tel: encontrados:', document.querySelectorAll('a[href^="tel:"]').length);
-    console.log('Inputs tel: encontrados:', document.querySelectorAll('input[type="tel"]').length);
-    const e164 = (document.body.innerText || '').match(/\+55\s?\(?\d{2}\)?\s?\d{4,5}[-\s]?\d{4}/g);
-    console.log('Números E.164 (+55...) encontrados no texto:', e164);
+  function debugPhone() {
+    console.group('[Api4com] Debug telefone');
+    console.log('URL:', location.href);
+    console.log('Links tel:', document.querySelectorAll('a[href^="tel:"]').length);
+    console.log('Inputs tel:', document.querySelectorAll('input[type="tel"]').length);
+    console.log('+55 no texto:', (document.body.innerText || '').match(/\+55[\d\s\(\)\-]{8,}/g));
     console.groupEnd();
   }
 
-  function removeButtons() {
-    [BTN_ID, CFG_BTN_ID].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.remove();
-    });
+  function removeButton() {
+    const el = document.getElementById(WRAP_ID);
+    if (el) el.remove();
   }
 
-  /* ─── Observer: detecta navegação SPA e re-renders ──────── */
+  /* ─── Observer SPA + init ────────────────────────────────── */
   let lastUrl = location.href;
-  let injectTimer = null;
+  let timer   = null;
 
-  function scheduleInject() {
-    clearTimeout(injectTimer);
-    injectTimer = setTimeout(() => {
-      if (isRelevantPage()) {
-        injectButtons();
-      } else {
-        removeButtons();
-      }
+  function schedule() {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (isRelevantPage()) injectButton();
+      else removeButton();
     }, 800);
   }
 
   new MutationObserver(() => {
-    // Rota mudou?
     if (location.href !== lastUrl) {
       lastUrl = location.href;
-      removeButtons();
-      scheduleInject();
+      removeButton();
+      schedule();
       return;
     }
-    // Botão sumiu por re-render?
-    if (isRelevantPage() && !document.getElementById(BTN_ID)) {
-      scheduleInject();
-    }
+    if (isRelevantPage() && !document.getElementById(WRAP_ID)) schedule();
   }).observe(document.body, { childList: true, subtree: true });
 
-  /* ─── Init ───────────────────────────────────────────────── */
   function init() {
     if (isRelevantPage()) {
-      injectButtons();
+      injectButton();
       if (!isConfigured()) setTimeout(openModal, 1500);
     }
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
+  document.readyState === 'loading'
+    ? document.addEventListener('DOMContentLoaded', init)
+    : init();
 
-  console.log('[Api4com GHL] v3.3 carregado ✓');
+  console.log('[Api4com GHL] v4.0 carregado ✓');
 })();
