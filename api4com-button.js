@@ -1,6 +1,6 @@
 /**
  * ============================================================
- *  Api4com Webphone GHL — v5.2
+ *  Api4com Webphone GHL — v5.2.1
  *  Webphone SIP próprio integrado ao GoHighLevel
  *
  *  INSTALAÇÃO:
@@ -201,25 +201,46 @@
       }, 20000);
 
       try {
-        JsSIP.debug.disable('JsSIP:*');
+        // Habilita logs completos do JsSIP para diagnóstico
+        JsSIP.debug.enable('JsSIP:*');
 
         var socket = new JsSIP.WebSocketInterface(wsUri);
         var ua = new JsSIP.UA({
-          sockets:          [socket],
-          uri:              'sip:' + ext.ramal + '@' + domain,
-          password:         ext.senha,
-          realm:            domain,
-          register:         true,
-          register_expires: 600,
-          user_agent:       'api4com-ghl-webphone',
+          sockets:           [socket],
+          uri:               'sip:' + ext.ramal + '@' + domain,
+          password:          ext.senha,
+          realm:             domain,
+          register:          true,
+          register_expires:  600,
+          user_agent:        'api4com-ghl-webphone',
           no_answer_timeout: 30,
+          connection_recovery_min_interval: 2,
+          connection_recovery_max_interval: 30,
         });
 
         state.webphone = ua;
 
+        // WebSocket abriu — boa notícia, chegou ao servidor
+        ua.on('connected', function() {
+          console.log('[Api4com] ✅ WebSocket conectado ao servidor SIP — aguardando registro…');
+          var el = document.getElementById('a4c-connecting-msg');
+          if (el) el.textContent = 'WebSocket conectado — registrando ramal…';
+        });
+
+        // WebSocket fechou — problema de rede ou servidor recusou
+        ua.on('disconnected', function(e) {
+          console.error('[Api4com] ❌ WebSocket desconectado:', e);
+          if (state.sipStatus !== 'online') {
+            clearTimeout(_sipTimeout);
+            state.sipStatus = 'offline';
+            state.screen = 'error';
+            render();
+          }
+        });
+
         ua.on('registered', function() {
           clearTimeout(_sipTimeout);
-          console.log('[Api4com] SIP registrado ✓');
+          console.log('[Api4com] ✅ SIP registrado com sucesso!');
           state.sipStatus = 'online';
           state.screen    = 'dialer';
           var phone = extractPhone();
@@ -235,7 +256,7 @@
 
         ua.on('registrationFailed', function(data) {
           clearTimeout(_sipTimeout);
-          console.error('[Api4com] Falha no registro SIP:', data.cause);
+          console.error('[Api4com] ❌ Falha no registro SIP — causa:', data.cause, data);
           state.sipStatus = 'offline';
           state.screen = 'error';
           render();
@@ -365,7 +386,7 @@
     return hdr('Api4com — Conectando') +
       '<div style="padding:32px 16px;display:flex;flex-direction:column;align-items:center;gap:14px;">' +
       '<div style="width:34px;height:34px;border:3px solid #e5e7eb;border-top-color:#2563eb;border-radius:50%;animation:a4c-spin 0.8s linear infinite;"></div>' +
-      '<span style="font-size:13px;color:#6b7280;">Registrando ramal SIP…</span>' +
+      '<span style="font-size:13px;color:#6b7280;"<span id=\"a4c-connecting-msg\">Registrando ramal SIP…</span></span>' +
       '<button id="a4c-logout-sm" style="font-size:12px;color:#6b7280;background:none;border:none;cursor:pointer;text-decoration:underline;">Sair / trocar conta</button>' +
       '</div>';
   }
@@ -753,5 +774,5 @@
     init();
   }
 
-  console.log('[Api4com GHL] v5.1 — JsSIP ✓');
+  console.log('[Api4com GHL] v5.2 — JsSIP debug ✓');
 })();
