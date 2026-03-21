@@ -1,37 +1,28 @@
 /**
  * ============================================================
- *  Api4com Click-to-Call — GHL Whitelabel v4.1
+ *  Api4com Click-to-Call — GHL Whitelabel v5.0
  *
  *  INSTALAÇÃO:
  *  Settings > Whitelabel > Custom Scripts:
- *  <script src="https://SEU-DOMINIO/api4com-ghl.js"></script>
+ *  <script src="https://tobiasgtn.github.io/api4com-button/api4com-ghl.js"></script>
  *
- *  USO:
- *  - Botão split [📞 Ligar | ⚙️] aparece ao lado do botão Call
- *  - Primeira vez: clique em ⚙️ e informe Token + Ramal
- *  - Depois: clique em Ligar → POST /dialer → Webphone toca
+ *  MUDANÇAS v5.0:
+ *  - Abre webphone.html como popup (janela separada)
+ *  - Login com email/senha da Api4com (busca ramal automaticamente)
+ *  - Chamada SIP direta pelo navegador via libwebphone.js
+ *  - Sem dependência da extensão Chrome Api4com
+ *  - Comunicação GHL ↔ Popup via postMessage
  * ============================================================
  */
 
 (function () {
   'use strict';
 
-  const STORAGE_KEY = 'api4com_cfg_v1';
-  const API_BASE    = 'https://api.api4com.com/api/v1';
-  const WRAP_ID     = 'api4com-btn-wrap';
+  /* ─── Config ─────────────────────────────────────────────── */
+  const WEBPHONE_BASE = 'https://tobiasgtn.github.io/api4com-button/webphone.html';
+  const WRAP_ID       = 'api4com-btn-wrap';
 
-  /* ─── Config (localStorage) ─────────────────────────────── */
-  function getConfig() {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
-    catch { return {}; }
-  }
-  function saveConfig(cfg) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
-  }
-  function isConfigured() {
-    const c = getConfig();
-    return !!(c.token && c.extension);
-  }
+  let popupRef = null;
 
   /* ─── Página relevante ───────────────────────────────────── */
   function isRelevantPage() {
@@ -95,34 +86,46 @@
     return (n.startsWith('+') && n.length >= 12 && n.length <= 14) ? n : null;
   }
 
-  /* ─── POST /dialer ───────────────────────────────────────── */
-  async function doCall(phone) {
-    const cfg = getConfig();
-    showToast('⏳ Ligando para ' + phone + '…', 'info');
-    try {
-      const resp = await fetch(API_BASE + '/dialer', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': cfg.token,
-        },
-        body: JSON.stringify({
-          extension: cfg.extension,
-          phone,
-          metadata: { gateway: 'ghl-whitelabel' },
-        }),
-      });
-      const data = await resp.json();
-      if (resp.ok && data.id) {
-        showToast('✅ Chamada iniciada! Atenda o Webphone.', 'success');
-      } else {
-        showToast('❌ ' + (data.message || data.error || 'Erro na chamada'), 'error');
-        console.error('[Api4com]', data);
+  /* ─── Popup management ──────────────────────────────────── */
+  function isPopupOpen() {
+    return popupRef && !popupRef.closed;
+  }
+
+  function openWebphone(phone) {
+    const w = 360;
+    const h = 520;
+    const left = window.screenX + window.outerWidth - w - 40;
+    const top  = window.screenY + 80;
+    const features = `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=no,status=no,menubar=no,toolbar=no`;
+
+    if (isPopupOpen()) {
+      // Popup already open — send phone via postMessage
+      popupRef.focus();
+      if (phone) {
+        popupRef.postMessage({ type: 'api4com:dial', phone: phone }, '*');
       }
-    } catch (e) {
-      showToast('❌ Falha de conexão.', 'error');
-      console.error('[Api4com]', e);
+    } else {
+      // Open new popup with phone in URL
+      const url = phone
+        ? WEBPHONE_BASE + '?phone=' + encodeURIComponent(phone)
+        : WEBPHONE_BASE;
+      popupRef = window.open(url, 'api4com_webphone', features);
     }
+  }
+
+  /* ─── Listen for messages from popup ─────────────────────── */
+  window.addEventListener('message', (e) => {
+    if (!e.data || typeof e.data !== 'object') return;
+    // Future: update button status based on popup state
+    if (e.data.type === 'api4com:status') {
+      updateButtonStatus(e.data.state);
+    }
+  });
+
+  function updateButtonStatus(sipState) {
+    const dot = document.getElementById('api4com-status-dot');
+    if (!dot) return;
+    dot.style.background = sipState === 'registered' ? '#22c55e' : '#6b7280';
   }
 
   /* ─── Toast ──────────────────────────────────────────────── */
@@ -148,106 +151,6 @@
     t.textContent = msg;
     clearTimeout(t._t);
     t._t = setTimeout(() => { t.style.opacity = '0'; }, 4500);
-  }
-
-  /* ─── Modal de configuração ──────────────────────────────── */
-  function openModal() {
-    if (document.getElementById('api4com-modal')) return;
-    const cfg = getConfig();
-
-    const overlay = document.createElement('div');
-    overlay.id = 'api4com-modal';
-    Object.assign(overlay.style, {
-      position: 'fixed', inset: '0',
-      background: 'rgba(0,0,0,0.5)',
-      backdropFilter: 'blur(4px)',
-      zIndex: '2147483646',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontFamily: 'system-ui,-apple-system,sans-serif',
-    });
-
-    overlay.innerHTML = `
-      <div style="background:#fff;border-radius:16px;padding:32px;width:390px;
-                  box-shadow:0 24px 60px rgba(0,0,0,0.28);">
-
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:22px;">
-          <div style="width:42px;height:42px;flex-shrink:0;
-                      background:linear-gradient(135deg,#1e40af,#3b82f6);
-                      border-radius:11px;display:flex;align-items:center;
-                      justify-content:center;font-size:20px;">📞</div>
-          <div>
-            <div style="font-size:16px;font-weight:700;color:#111;">Api4com</div>
-            <div style="font-size:12px;color:#6b7280;">Configuração do agente</div>
-          </div>
-          <button id="a4c-close"
-            style="margin-left:auto;background:none;border:none;
-                   cursor:pointer;font-size:20px;color:#9ca3af;padding:4px;">✕</button>
-        </div>
-
-        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;
-                    padding:14px;margin-bottom:20px;font-size:13px;
-                    color:#1e40af;line-height:1.8;">
-          <strong>Onde encontrar suas credenciais?</strong><br>
-          1. Acesse <a href="https://app.api4com.com" target="_blank"
-               style="color:#1d4ed8;font-weight:600;">app.api4com.com</a><br>
-          2. Perfil → <strong>Tokens de Acesso</strong> → criar com TTL = -1<br>
-          3. O <strong>Ramal</strong> aparece no Webphone Chrome (ícone verde)
-        </div>
-
-        <label style="display:block;margin-bottom:14px;">
-          <span style="font-size:13px;font-weight:600;color:#374151;
-                       display:block;margin-bottom:5px;">Token de Acesso</span>
-          <input id="a4c-token" type="password" value="${cfg.token || ''}"
-            placeholder="Cole aqui seu token…"
-            style="width:100%;box-sizing:border-box;padding:10px 13px;
-                   border:1.5px solid #d1d5db;border-radius:8px;
-                   font-size:14px;outline:none;"/>
-        </label>
-
-        <label style="display:block;margin-bottom:24px;">
-          <span style="font-size:13px;font-weight:600;color:#374151;
-                       display:block;margin-bottom:5px;">Número do Ramal</span>
-          <input id="a4c-ramal" type="text" value="${cfg.extension || ''}"
-            placeholder="Ex: 1001"
-            style="width:100%;box-sizing:border-box;padding:10px 13px;
-                   border:1.5px solid #d1d5db;border-radius:8px;
-                   font-size:14px;outline:none;"/>
-        </label>
-
-        <button id="a4c-save"
-          style="width:100%;padding:13px;
-                 background:linear-gradient(135deg,#1e40af,#3b82f6);
-                 color:#fff;border:none;border-radius:10px;
-                 font-size:15px;font-weight:600;cursor:pointer;">
-          Salvar configuração
-        </button>
-
-        <div id="a4c-msg"
-          style="margin-top:12px;text-align:center;font-size:13px;min-height:18px;"></div>
-      </div>
-    `;
-
-    document.body.appendChild(overlay);
-
-    overlay.querySelector('#a4c-close').onclick = () => overlay.remove();
-    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
-
-    overlay.querySelector('#a4c-save').onclick = () => {
-      const token = overlay.querySelector('#a4c-token').value.trim();
-      const ext   = overlay.querySelector('#a4c-ramal').value.trim();
-      const msg   = overlay.querySelector('#a4c-msg');
-      if (!token) { msg.style.color = '#dc2626'; msg.textContent = '⚠️ Informe o Token.'; return; }
-      if (!ext)   { msg.style.color = '#dc2626'; msg.textContent = '⚠️ Informe o Ramal.'; return; }
-      saveConfig({ token, extension: ext });
-      msg.style.color   = '#16a34a';
-      msg.textContent   = '✅ Configuração salva!';
-      setTimeout(() => overlay.remove(), 1200);
-    };
-
-    setTimeout(() => {
-      const inp = overlay.querySelector(cfg.token ? '#a4c-ramal' : '#a4c-token');
-      if (inp) inp.focus();
-    }, 80);
   }
 
   /* ─── Botão split [📞 Ligar | ⚙️] ───────────────────────── */
@@ -307,6 +210,8 @@
       transition:    'filter 0.15s',
     });
     dialPart.innerHTML = `
+      <span id="api4com-status-dot" style="width:6px;height:6px;border-radius:50%;
+        background:#6b7280;flex-shrink:0;"></span>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
            stroke="currentColor" stroke-width="2.5"
            stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0">
@@ -327,21 +232,21 @@
     dialPart.addEventListener('mouseenter', () => dialPart.style.filter = 'brightness(1.15)');
     dialPart.addEventListener('mouseleave', () => dialPart.style.filter = 'brightness(1)');
     dialPart.addEventListener('click', () => {
-      if (!isConfigured()) { openModal(); return; }
       const phone = extractPhone();
       if (!phone) {
         showToast('⚠️ Telefone não encontrado nesta tela.', 'error');
         console.warn('[Api4com] Debug:', {
           telLinks: document.querySelectorAll('a[href^="tel:"]').length,
           telInputs: document.querySelectorAll('input[type="tel"]').length,
-          e164: (document.body.innerText||'').match(/\+55[\d\s\(\)\-]{8,}/g),
         });
+        // Open popup anyway (user can type number)
+        openWebphone(null);
         return;
       }
-      doCall(phone);
+      openWebphone(phone);
     });
 
-    /* Parte direita: ⚙️ */
+    /* Parte direita: abrir webphone */
     const cfgPart = document.createElement('button');
     Object.assign(cfgPart.style, {
       display:        'inline-flex',
@@ -355,35 +260,24 @@
       cursor:         'pointer',
       transition:     'filter 0.15s',
     });
-    cfgPart.title = 'Configurar Api4com';
+    cfgPart.title = 'Abrir Webphone Api4com';
     cfgPart.innerHTML = `
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
            stroke="currentColor" stroke-width="2.2"
            stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="3"/>
-        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83
-                 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33
-                 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09
-                 A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06
-                 a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15
-                 a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09
-                 A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06
-                 a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68
-                 a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09
-                 a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06
-                 a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9
-                 a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09
-                 a1.65 1.65 0 00-1.51 1z"/>
+        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+        <line x1="8" y1="21" x2="16" y2="21"/>
+        <line x1="12" y1="17" x2="12" y2="21"/>
       </svg>
     `;
     cfgPart.addEventListener('mouseenter', () => cfgPart.style.filter = 'brightness(1.15)');
     cfgPart.addEventListener('mouseleave', () => cfgPart.style.filter = 'brightness(1)');
-    cfgPart.addEventListener('click', openModal);
+    cfgPart.addEventListener('click', () => openWebphone(null));
 
     wrap.appendChild(dialPart);
     wrap.appendChild(cfgPart);
     anchor.parentNode.insertBefore(wrap, anchor);
-    console.log('[Api4com v4.1] Botão injetado ✓');
+    console.log('[Api4com v5.0] Botão injetado ✓');
   }
 
   function removeButton() {
@@ -411,15 +305,12 @@
   }).observe(document.body, { childList: true, subtree: true });
 
   function init() {
-    if (isRelevantPage()) {
-      injectButton();
-      if (!isConfigured()) setTimeout(openModal, 1500);
-    }
+    if (isRelevantPage()) injectButton();
   }
 
   document.readyState === 'loading'
     ? document.addEventListener('DOMContentLoaded', init)
     : init();
 
-  console.log('[Api4com GHL] v4.1 ✓');
+  console.log('[Api4com GHL] v5.0 — Webphone mode ✓');
 })();
