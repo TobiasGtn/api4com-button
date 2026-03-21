@@ -426,22 +426,41 @@
     /* ══════════════════════════════════
        CALL
     ══════════════════════════════════ */
-    function doCall() {
+    async function doCall() {
       const raw = document.getElementById('inp-phone').value;
       const phone = sanitize(raw);
       if (!phone) { showToast('Número inválido'); return; }
       if (!S.ua || !S.ua.isRegistered()) { showToast('Webphone não conectado'); return; }
 
       document.getElementById('call-number').textContent = fmtPhone(phone);
+      document.getElementById('btn-dial').disabled = true;
+      showInCall('Iniciando…', false);
 
-      const options = {
-        eventHandlers: {},
-        mediaConstraints: { audio: true, video: false },
-        pcConfig: { iceServers: [] },
-      };
-
-      const session = S.ua.call('sip:' + phone.replace('+', '') + '@' + S.sipDomain, options);
-      setupSession(session);
+      try {
+        const resp = await fetch(API_BASE + '/dialer', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': S.token,
+          },
+          body: JSON.stringify({
+            extension: S.sipExtension,
+            phone: phone,
+            metadata: { gateway: 'ghl-webphone' },
+          }),
+        });
+        const data = await resp.json();
+        if (resp.ok && data.id) {
+          showInCall('Chamando…', false);
+        } else {
+          showToast('Erro: ' + (data.message || data.error || 'falha ao iniciar'));
+          showIdle();
+        }
+      } catch (e) {
+        showToast('Falha de conexão');
+        showIdle();
+      }
+      document.getElementById('btn-dial').disabled = false;
     }
 
     function setupSession(session) {
