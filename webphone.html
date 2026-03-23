@@ -4,627 +4,569 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Api4com Webphone</title>
-  <!-- JsSIP — browser-native SIP library -->
   <script src="./jssip.min.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,500;9..40,700&family=JetBrains+Mono:wght@400;600&display=swap');
 
     :root {
-      --bg-primary: #0c0f14;
-      --bg-input: #1c2130;
-      --bg-hover: #232a3a;
+      --bg: #0b0e13;
+      --bg-card: #13171e;
+      --bg-input: #1a1f2b;
+      --bg-hover: #222939;
       --accent: #3b82f6;
-      --accent-glow: rgba(59,130,246,0.25);
-      --success: #22c55e;
-      --warning: #f59e0b;
-      --danger: #ef4444;
-      --text-primary: #e8ecf4;
-      --text-secondary: #7a8599;
-      --text-muted: #4a5568;
-      --border: #252d3d;
+      --accent-glow: rgba(59,130,246,.2);
+      --green: #22c55e;
+      --green-dim: rgba(34,197,94,.12);
+      --yellow: #f59e0b;
+      --red: #ef4444;
+      --text: #e4e9f2;
+      --text2: #8191a8;
+      --text3: #4a566a;
+      --border: #222939;
+      --radius: 12px;
     }
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);
+      height:100vh;display:flex;flex-direction:column;overflow:hidden;user-select:none}
 
-    * { margin:0; padding:0; box-sizing:border-box; }
+    /* ═══ HEADER ═══ */
+    .hdr{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border)}
+    .hdr-signal{display:flex;align-items:flex-end;gap:1.5px;height:16px;cursor:default}
+    .hdr-signal .bar{width:3px;border-radius:1px;background:var(--text3);transition:background .3s}
+    .hdr-signal.good .bar{background:var(--green)}
+    .hdr-signal.medium .bar:nth-child(-n+3){background:var(--yellow)}
+    .hdr-signal.bad .bar:nth-child(-n+2){background:var(--red)}
+    .hdr-signal.off .bar{background:var(--text3)}
+    .hdr-info{flex:1;min-width:0}
+    .hdr-name{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .hdr-sub{font-size:10.5px;color:var(--text2);display:flex;align-items:center;gap:6px;margin-top:1px}
+    .hdr-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+    .hdr-balance{font-size:11px;font-weight:700;color:var(--green);background:var(--green-dim);
+      padding:3px 8px;border-radius:6px;white-space:nowrap}
+    .hdr-btn{background:none;border:none;color:var(--text3);cursor:pointer;padding:5px;border-radius:6px;
+      display:flex;align-items:center;justify-content:center;transition:all .15s}
+    .hdr-btn:hover{color:var(--text2);background:var(--bg-hover)}
 
-    body {
-      font-family:'DM Sans',sans-serif;
-      background:var(--bg-primary);
-      color:var(--text-primary);
-      min-height:100vh;
-      display:flex; flex-direction:column;
-      overflow:hidden; user-select:none;
-    }
+    /* ═══ SCREENS ═══ */
+    .scr{display:none;flex-direction:column;flex:1;overflow:hidden}
+    .scr.on{display:flex;animation:fadeUp .2s ease}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 
-    /* ── Header ── */
-    .header {
-      display:flex; align-items:center; gap:10px;
-      padding:16px 20px 12px;
-      border-bottom:1px solid var(--border);
-    }
-    .header-logo {
-      width:34px;height:34px;
-      background:linear-gradient(135deg,#1e40af,#3b82f6);
-      border-radius:9px;display:flex;align-items:center;justify-content:center;
-      font-size:16px;flex-shrink:0;
-    }
-    .header-info{flex:1;min-width:0}
-    .header-title{font-size:14px;font-weight:700;letter-spacing:-0.3px}
-    .header-status{font-size:11px;font-weight:500;display:flex;align-items:center;gap:5px;margin-top:2px}
-    .status-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
-    .status-dot.offline{background:var(--text-muted)}
-    .status-dot.connecting{background:var(--warning);animation:pulse-dot 1.2s ease-in-out infinite}
-    .status-dot.online{background:var(--success)}
-    .status-dot.error{background:var(--danger)}
-    @keyframes pulse-dot{0%,100%{opacity:1}50%{opacity:.3}}
+    /* ═══ LOGIN ═══ */
+    #scr-login{padding:24px 18px;justify-content:center;gap:14px}
+    .lg-title{font-size:17px;font-weight:700;text-align:center}
+    .lg-sub{font-size:11.5px;color:var(--text2);text-align:center;margin-bottom:4px}
+    .fld{display:flex;flex-direction:column;gap:4px}
+    .fld label{font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px}
+    .fld input{background:var(--bg-input);border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;
+      color:var(--text);font-family:'DM Sans',sans-serif;font-size:13.5px;outline:none;transition:border-color .2s}
+    .fld input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+    .fld input::placeholder{color:var(--text3)}
+    .btn-main{width:100%;padding:12px;background:linear-gradient(135deg,#1e40af,#3b82f6);color:#fff;border:none;
+      border-radius:10px;font-family:'DM Sans',sans-serif;font-size:13.5px;font-weight:600;cursor:pointer;
+      transition:filter .15s,transform .1s;margin-top:4px}
+    .btn-main:hover{filter:brightness(1.1)}
+    .btn-main:active{transform:scale(.98)}
+    .btn-main:disabled{opacity:.45;cursor:not-allowed;filter:none;transform:none}
+    .lg-err{font-size:11px;color:var(--red);text-align:center;min-height:15px}
 
-    .btn-icon{background:none;border:none;color:var(--text-muted);cursor:pointer;padding:6px;border-radius:6px;transition:all .15s;display:flex;align-items:center;justify-content:center}
-    .btn-icon:hover{color:var(--text-secondary);background:var(--bg-hover)}
+    /* ═══ CONNECTING ═══ */
+    #scr-conn{justify-content:center;align-items:center;gap:14px;padding:40px 18px}
+    .sp-lg{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite}
+    .sp{width:18px;height:18px;border:2.5px solid rgba(255,255,255,.15);border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite;display:inline-block}
+    @keyframes sp{to{transform:rotate(360deg)}}
+    .conn-txt{font-size:12.5px;color:var(--text2)}
 
-    /* ── Screens ── */
-    .screen{display:none;flex-direction:column;flex:1}
-    .screen.active{display:flex;animation:fadeIn .25s ease}
-    @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+    /* ═══ DIALER ═══ */
+    #scr-dial{padding:12px 16px 8px;gap:6px}
+    .ph-input{width:100%;background:var(--bg-input);border:1.5px solid var(--border);border-radius:10px;
+      padding:12px 14px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:19px;font-weight:600;
+      letter-spacing:.5px;outline:none;text-align:center;transition:border-color .2s}
+    .ph-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+    .ph-input::placeholder{color:var(--text3);font-size:15px;font-weight:400}
 
-    /* ── Login ── */
-    #screen-login{padding:28px 20px;justify-content:center;gap:16px}
-    .login-heading{font-size:18px;font-weight:700;letter-spacing:-0.4px;text-align:center;margin-bottom:4px}
-    .login-sub{font-size:12px;color:var(--text-secondary);text-align:center;line-height:1.5;margin-bottom:8px}
-    .field{display:flex;flex-direction:column;gap:5px}
-    .field label{font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px}
-    .field input{background:var(--bg-input);border:1.5px solid var(--border);border-radius:8px;padding:11px 13px;color:var(--text-primary);font-family:'DM Sans',sans-serif;font-size:14px;outline:none;transition:border-color .2s}
-    .field input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
-    .field input::placeholder{color:var(--text-muted)}
+    /* Dialpad */
+    .pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:6px 8px}
+    .pad-btn{height:48px;border:none;border-radius:10px;background:var(--bg-input);color:var(--text);
+      font-family:'DM Sans',sans-serif;font-size:18px;font-weight:600;cursor:pointer;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      transition:background .12s,transform .1s}
+    .pad-btn:hover{background:var(--bg-hover)}
+    .pad-btn:active{transform:scale(.94);background:var(--border)}
+    .pad-sub{font-size:8px;color:var(--text3);letter-spacing:1.5px;margin-top:-1px}
 
-    .btn-primary{width:100%;padding:13px;background:linear-gradient(135deg,#1e40af,#3b82f6);color:#fff;border:none;border-radius:10px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;transition:filter .15s,transform .1s;margin-top:6px}
-    .btn-primary:hover{filter:brightness(1.1)}
-    .btn-primary:active{transform:scale(.98)}
-    .btn-primary:disabled{opacity:.5;cursor:not-allowed;filter:none;transform:none}
-    .login-error{font-size:12px;color:var(--danger);text-align:center;min-height:16px}
-
-    /* ── Connecting ── */
-    #screen-connecting{justify-content:center;align-items:center;gap:16px;padding:40px 20px}
-    .connecting-text{font-size:13px;color:var(--text-secondary)}
-    .spinner-lg{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
-    .spinner{width:20px;height:20px;border:2.5px solid rgba(255,255,255,.2);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
-    @keyframes spin{to{transform:rotate(360deg)}}
-
-    /* ── Dialer ── */
-    #screen-dialer{padding:24px 20px;gap:20px}
-    .phone-label{font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px}
-    .phone-input{width:100%;background:var(--bg-input);border:1.5px solid var(--border);border-radius:10px;padding:14px 16px;color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:600;letter-spacing:.5px;outline:none;transition:border-color .2s}
-    .phone-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
-    .phone-input::placeholder{color:var(--text-muted);font-size:16px;font-weight:400}
-
-    .btn-call{width:100%;padding:16px;border:none;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:filter .15s,transform .1s}
+    .btn-call{width:100%;padding:14px;border:none;border-radius:12px;font-family:'DM Sans',sans-serif;
+      font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;
+      gap:8px;transition:filter .15s,transform .1s;margin-top:4px}
     .btn-call:active{transform:scale(.97)}
-    .btn-call:disabled{opacity:.4;cursor:not-allowed;transform:none;filter:none}
-    .btn-call.call{background:linear-gradient(135deg,#15803d,#22c55e);color:#fff}
-    .btn-call.call:hover:not(:disabled){filter:brightness(1.1)}
-    .btn-call.hangup{background:linear-gradient(135deg,#b91c1c,#ef4444);color:#fff}
-    .btn-call.hangup:hover{filter:brightness(1.1)}
+    .btn-call:disabled{opacity:.35;cursor:not-allowed;transform:none;filter:none}
+    .btn-call.go{background:linear-gradient(135deg,#15803d,#22c55e);color:#fff}
+    .btn-call.go:hover:not(:disabled){filter:brightness(1.1)}
+    .btn-call.end{background:linear-gradient(135deg,#b91c1c,#ef4444);color:#fff}
+    .btn-call.end:hover{filter:brightness(1.1)}
 
-    /* ── In-call ── */
-    .call-info{text-align:center;padding:12px 0}
-    .call-number{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:600;letter-spacing:.5px;margin-bottom:6px}
-    .call-timer{font-size:13px;font-family:'JetBrains Mono',monospace;color:var(--text-secondary)}
-    .call-state-label{font-size:12px;font-weight:600;color:var(--warning)}
-    .call-state-label.answered{color:var(--success)}
+    /* ═══ IN-CALL ═══ */
+    .ic{text-align:center;padding:10px 0}
+    .ic-num{font-family:'JetBrains Mono',monospace;font-size:19px;font-weight:600;letter-spacing:.5px}
+    .ic-label{font-size:11.5px;font-weight:600;color:var(--yellow);margin-top:4px}
+    .ic-label.ok{color:var(--green)}
+    .ic-timer{font-size:13px;font-family:'JetBrains Mono',monospace;color:var(--text2);margin-top:2px}
+    .ic-ctrls{display:flex;gap:10px;justify-content:center;padding:6px 0}
+    .ctrl{width:52px;height:52px;border-radius:50%;border:1.5px solid var(--border);background:var(--bg-input);
+      color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+    .ctrl:hover{background:var(--bg-hover);border-color:var(--text3)}
+    .ctrl.on{background:var(--accent);border-color:var(--accent);color:#fff}
 
-    .call-controls{display:flex;gap:12px;justify-content:center;padding:8px 0}
-    .ctrl-btn{width:56px;height:56px;border-radius:50%;border:1.5px solid var(--border);background:var(--bg-input);color:var(--text-primary);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0}
-    .ctrl-btn:hover{background:var(--bg-hover);border-color:var(--text-muted)}
-    .ctrl-btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+    /* ═══ SETTINGS MODAL ═══ */
+    .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(3px);
+      z-index:90;display:none;align-items:center;justify-content:center}
+    .modal-bg.open{display:flex}
+    .modal{background:var(--bg-card);border-radius:14px;padding:22px;width:calc(100% - 32px);max-width:340px;
+      box-shadow:0 20px 50px rgba(0,0,0,.4);border:1px solid var(--border)}
+    .modal h3{font-size:15px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+    .modal-close{margin-left:auto;background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;padding:2px 6px;border-radius:4px}
+    .modal-close:hover{color:var(--text2);background:var(--bg-hover)}
+    .modal-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)}
+    .modal-row:last-child{border:none}
+    .modal-lbl{font-size:12px;color:var(--text2)}
+    .modal-val{font-size:12px;font-weight:600;color:var(--text)}
 
-    /* ── Toast ── */
-    .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%) translateY(80px);background:#151921;border:1px solid var(--border);color:var(--text-primary);padding:10px 18px;border-radius:10px;font-size:12px;font-weight:500;box-shadow:0 8px 30px rgba(0,0,0,.4);transition:transform .3s ease;z-index:100;pointer-events:none;white-space:nowrap}
-    .toast.visible{transform:translateX(-50%) translateY(0)}
+    /* ═══ TOAST ═══ */
+    .toast{position:fixed;bottom:14px;left:50%;transform:translateX(-50%) translateY(70px);
+      background:var(--bg-card);border:1px solid var(--border);color:var(--text);padding:9px 16px;
+      border-radius:10px;font-size:11.5px;font-weight:500;box-shadow:0 8px 30px rgba(0,0,0,.4);
+      transition:transform .3s ease;z-index:100;pointer-events:none;white-space:nowrap}
+    .toast.vis{transform:translateX(-50%) translateY(0)}
   </style>
 </head>
 <body>
 
-  <!-- Header -->
-  <div class="header">
-    <div class="header-logo">📞</div>
-    <div class="header-info">
-      <div class="header-title">Api4com</div>
-      <div class="header-status">
-        <span class="status-dot offline" id="status-dot"></span>
-        <span id="status-text" style="color:var(--text-muted)">Desconectado</span>
-      </div>
+<!-- ═══════ HEADER ═══════ -->
+<div class="hdr" id="hdr" style="display:none">
+  <!-- Signal bars -->
+  <div class="hdr-signal off" id="signal" title="Qualidade da conexão">
+    <div class="bar" style="height:4px"></div>
+    <div class="bar" style="height:7px"></div>
+    <div class="bar" style="height:10px"></div>
+    <div class="bar" style="height:13px"></div>
+  </div>
+  <div class="hdr-info">
+    <div class="hdr-name" id="hdr-name">—</div>
+    <div class="hdr-sub">
+      <span class="hdr-dot" id="hdr-dot" style="background:var(--text3)"></span>
+      <span id="hdr-status">Desconectado</span>
     </div>
-    <button class="btn-icon" id="btn-logout" title="Sair" style="display:none" onclick="doLogout()">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
-      </svg>
+  </div>
+  <div class="hdr-balance" id="hdr-balance" style="display:none">R$ —</div>
+  <button class="hdr-btn" title="Configurações" onclick="openSettings()">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+    </svg>
+  </button>
+  <button class="hdr-btn" title="Sair" onclick="doLogout()">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+    </svg>
+  </button>
+</div>
+
+<!-- ═══════ LOGIN ═══════ -->
+<div class="scr on" id="scr-login">
+  <div class="lg-title">Entrar</div>
+  <div class="lg-sub">Use suas credenciais da Api4com</div>
+  <div class="fld"><label>E-mail</label><input type="email" id="inp-email" placeholder="seu@email.com" autocomplete="email"/></div>
+  <div class="fld"><label>Senha</label><input type="password" id="inp-pass" placeholder="••••••••" autocomplete="current-password"/></div>
+  <div class="lg-err" id="lg-err"></div>
+  <button class="btn-main" id="btn-login" onclick="doLogin()">Entrar</button>
+</div>
+
+<!-- ═══════ CONNECTING ═══════ -->
+<div class="scr" id="scr-conn">
+  <div class="sp-lg"></div>
+  <div class="conn-txt">Conectando ao servidor de voz…</div>
+</div>
+
+<!-- ═══════ DIALER ═══════ -->
+<div class="scr" id="scr-dial">
+  <!-- Idle -->
+  <div id="d-idle">
+    <input type="tel" class="ph-input" id="inp-phone" placeholder="+55 (00) 00000-0000"/>
+    <div class="pad">
+      <button class="pad-btn" onclick="dial('1')">1<span class="pad-sub">&nbsp;</span></button>
+      <button class="pad-btn" onclick="dial('2')">2<span class="pad-sub">ABC</span></button>
+      <button class="pad-btn" onclick="dial('3')">3<span class="pad-sub">DEF</span></button>
+      <button class="pad-btn" onclick="dial('4')">4<span class="pad-sub">GHI</span></button>
+      <button class="pad-btn" onclick="dial('5')">5<span class="pad-sub">JKL</span></button>
+      <button class="pad-btn" onclick="dial('6')">6<span class="pad-sub">MNO</span></button>
+      <button class="pad-btn" onclick="dial('7')">7<span class="pad-sub">PQRS</span></button>
+      <button class="pad-btn" onclick="dial('8')">8<span class="pad-sub">TUV</span></button>
+      <button class="pad-btn" onclick="dial('9')">9<span class="pad-sub">WXYZ</span></button>
+      <button class="pad-btn" onclick="dial('*')">*</button>
+      <button class="pad-btn" onclick="dial('0')">0<span class="pad-sub">+</span></button>
+      <button class="pad-btn" onclick="dial('#')">#</button>
+    </div>
+    <button class="btn-call go" id="btn-go" onclick="doCall()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81a19.79 19.79 0 01-3.07-8.67A2 2 0 012 .91h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 8.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/>
+      </svg>Ligar
     </button>
   </div>
 
-  <!-- Login -->
-  <div class="screen active" id="screen-login">
-    <div class="login-heading">Entrar</div>
-    <div class="login-sub">Use suas credenciais da Api4com</div>
-    <div class="field">
-      <label>E-mail</label>
-      <input type="email" id="inp-email" placeholder="seu@email.com" autocomplete="email"/>
+  <!-- In-call -->
+  <div id="d-call" style="display:none">
+    <div class="ic">
+      <div class="ic-num" id="ic-num"></div>
+      <div class="ic-label" id="ic-lbl">Chamando…</div>
+      <div class="ic-timer" id="ic-timer" style="display:none">00:00</div>
     </div>
-    <div class="field">
-      <label>Senha</label>
-      <input type="password" id="inp-password" placeholder="••••••••" autocomplete="current-password"/>
-    </div>
-    <div class="login-error" id="login-error"></div>
-    <button class="btn-primary" id="btn-login" onclick="doLogin()">Entrar</button>
-  </div>
-
-  <!-- Connecting -->
-  <div class="screen" id="screen-connecting">
-    <div class="spinner-lg"></div>
-    <div class="connecting-text">Conectando ao servidor de voz…</div>
-  </div>
-
-  <!-- Dialer -->
-  <div class="screen" id="screen-dialer">
-    <div id="dialer-idle">
-      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:20px">
-        <label class="phone-label">Número de destino</label>
-        <input type="tel" class="phone-input" id="inp-phone" placeholder="+55 (00) 00000-0000"/>
-      </div>
-      <button class="btn-call call" id="btn-dial" onclick="doCall()">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81a19.79 19.79 0 01-3.07-8.67A2 2 0 012 .91h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 8.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/>
+    <div class="ic-ctrls">
+      <button class="ctrl" id="btn-mute" title="Mudo" onclick="toggleMute()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
         </svg>
-        Ligar
+      </button>
+      <button class="ctrl" id="btn-hold" title="Espera" onclick="toggleHold()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+        </svg>
       </button>
     </div>
-
-    <div id="dialer-incall" style="display:none">
-      <div class="call-info">
-        <div class="call-number" id="call-number"></div>
-        <div class="call-state-label" id="call-state-label">Chamando…</div>
-        <div class="call-timer" id="call-timer" style="display:none">00:00</div>
-      </div>
-      <div class="call-controls">
-        <button class="ctrl-btn" id="btn-mute" title="Mudo" onclick="toggleMute()">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/>
-            <line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
-          </svg>
-        </button>
-        <button class="ctrl-btn" id="btn-hold" title="Espera" onclick="toggleHold()">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
-          </svg>
-        </button>
-      </div>
-      <button class="btn-call hangup" onclick="doHangup()">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M10.68 13.31a16 16 0 003.41 2.6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81a19.79 19.79 0 01-3.07-8.67A2 2 0 012 .91h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 8.91"/>
-          <line x1="1" y1="1" x2="23" y2="23"/>
-        </svg>
-        Desligar
-      </button>
-    </div>
+    <button class="btn-call end" onclick="doHangup()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10.68 13.31a16 16 0 003.41 2.6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81a19.79 19.79 0 01-3.07-8.67A2 2 0 012 .91h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 8.91"/>
+        <line x1="1" y1="1" x2="23" y2="23"/>
+      </svg>Desligar
+    </button>
   </div>
+</div>
 
-  <div class="toast" id="toast"></div>
-  <audio id="sip-audio" autoplay></audio>
+<!-- ═══════ SETTINGS MODAL ═══════ -->
+<div class="modal-bg" id="modal">
+  <div class="modal">
+    <h3>⚙️ Configurações <button class="modal-close" onclick="closeSettings()">✕</button></h3>
+    <div class="modal-row"><span class="modal-lbl">Usuário</span><span class="modal-val" id="cfg-user">—</span></div>
+    <div class="modal-row"><span class="modal-lbl">E-mail</span><span class="modal-val" id="cfg-email">—</span></div>
+    <div class="modal-row"><span class="modal-lbl">Ramal</span><span class="modal-val" id="cfg-ext">—</span></div>
+    <div class="modal-row"><span class="modal-lbl">Domínio SIP</span><span class="modal-val" id="cfg-domain">—</span></div>
+    <div class="modal-row"><span class="modal-lbl">Saldo</span><span class="modal-val" id="cfg-balance">—</span></div>
+    <div class="modal-row"><span class="modal-lbl">Versão</span><span class="modal-val">Webphone v5.1</span></div>
+  </div>
+</div>
 
-  <script>
-    'use strict';
+<div class="toast" id="toast"></div>
+<audio id="sip-audio" autoplay></audio>
 
-    const API_BASE    = 'https://api.api4com.com/api/v1';
-    const STORAGE_KEY = 'api4com_webphone_v2';
+<script>
+'use strict';
 
-    let S = {
-      token: null, email: null,
-      sipDomain: null, sipExtension: null, sipPassword: null,
-      ua: null,          // JsSIP.UA instance
-      session: null,     // current call session
-      isMuted: false,
-      isOnHold: false,
-      callStart: null,
-      timerInterval: null,
-    };
+const API = 'https://api.api4com.com/api/v1';
+const SK  = 'api4com_wp_v3';
 
-    /* ══════════ Persistence ══════════ */
-    function loadSaved() {
-      try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; }
+let S = {
+  token:null, email:null, userName:null,
+  sipDomain:null, sipExt:null, sipPwd:null,
+  ua:null, session:null, lastCallId:null,
+  isMuted:false, isHold:false,
+  callStart:null, timerInt:null,
+};
+
+/* ══════ Persist ══════ */
+function load(){try{return JSON.parse(localStorage.getItem(SK))||{}}catch{return{}}}
+function save(){localStorage.setItem(SK,JSON.stringify({
+  token:S.token,email:S.email,userName:S.userName,
+  sipDomain:S.sipDomain,sipExt:S.sipExt,sipPwd:S.sipPwd}))}
+
+/* ══════ Screens ══════ */
+function scr(id){document.querySelectorAll('.scr').forEach(s=>s.classList.remove('on'));document.getElementById(id).classList.add('on')}
+function setHdr(type,text){
+  const d=document.getElementById('hdr-dot');
+  const t=document.getElementById('hdr-status');
+  const colors={off:'var(--text3)',conn:'var(--yellow)',on:'var(--green)',err:'var(--red)'};
+  d.style.background=colors[type]||colors.off;
+  t.textContent=text;
+  // signal bars
+  const sig=document.getElementById('signal');
+  sig.className='hdr-signal '+(type==='on'?'good':type==='conn'?'medium':type==='err'?'bad':'off');
+}
+
+/* ══════ Toast ══════ */
+let _t;
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('vis');clearTimeout(_t);_t=setTimeout(()=>t.classList.remove('vis'),3500)}
+
+/* ══════ Dialpad ══════ */
+function dial(c){const inp=document.getElementById('inp-phone');inp.value+=c;inp.focus()}
+
+/* ══════════════════════
+   LOGIN
+══════════════════════ */
+async function doLogin(){
+  const email=document.getElementById('inp-email').value.trim();
+  const pwd=document.getElementById('inp-pass').value.trim();
+  const err=document.getElementById('lg-err');
+  const btn=document.getElementById('btn-login');
+  err.textContent='';
+  if(!email||!pwd){err.textContent='Preencha todos os campos.';return}
+  btn.disabled=true;btn.innerHTML='<span class="sp"></span>';
+
+  try{
+    // Login
+    const lr=await fetch(API+'/users/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password:pwd})});
+    const ld=await lr.json();
+    if(!lr.ok||!ld.id)throw new Error(ld.error?.message||ld.message||'Credenciais inválidas');
+    S.token=ld.id; S.email=email;
+
+    // User info
+    try{
+      const ur=await fetch(API+'/users/me',{headers:{'Authorization':S.token}});
+      const ud=await ur.json();
+      S.userName=(ud.name||ud.first_name||'').trim()||(ud.email||email);
+    }catch(e){S.userName=email}
+
+    // Extensions
+    const er=await fetch(API+'/extensions',{headers:{'Content-Type':'application/json','Authorization':S.token}});
+    const exts=await er.json();
+    if(!er.ok||!exts.length)throw new Error('Nenhum ramal encontrado.');
+    const ext=exts[0];
+    S.sipDomain=ext.domain; S.sipExt=ext.ramal; S.sipPwd=ext.senha;
+
+    save();
+    showHeader();
+    connectSIP();
+
+  }catch(e){
+    console.error('[Api4com]',e);
+    err.textContent=e.message||'Erro ao conectar.';
+    btn.disabled=false;btn.textContent='Entrar';
+  }
+}
+
+/* ══════ LOGOUT ══════ */
+function doLogout(){
+  if(S.ua)try{S.ua.stop()}catch(e){}
+  S={token:null,email:null,userName:null,sipDomain:null,sipExt:null,sipPwd:null,
+    ua:null,session:null,lastCallId:null,isMuted:false,isHold:false,callStart:null,timerInt:null};
+  localStorage.removeItem(SK);
+  document.getElementById('hdr').style.display='none';
+  document.getElementById('btn-login').disabled=false;
+  document.getElementById('btn-login').textContent='Entrar';
+  document.getElementById('lg-err').textContent='';
+  scr('scr-login');
+}
+
+/* ══════ HEADER ══════ */
+function showHeader(){
+  document.getElementById('hdr').style.display='flex';
+  document.getElementById('hdr-name').textContent=S.userName||S.email||'—';
+  updateSettings();
+  fetchBalance();
+}
+
+async function fetchBalance(){
+  try{
+    const r=await fetch(API+'/credits/balance',{headers:{'Authorization':S.token}});
+    const d=await r.json();
+    const val=typeof d==='number'?d:(d.balance??d.amount??null);
+    if(val!==null){
+      const fmt='R$ '+Number(val).toFixed(2).replace('.',',');
+      document.getElementById('hdr-balance').textContent=fmt;
+      document.getElementById('hdr-balance').style.display='';
+      document.getElementById('cfg-balance').textContent=fmt;
     }
-    function saveCredentials() {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        token: S.token, email: S.email,
-        sipDomain: S.sipDomain, sipExtension: S.sipExtension, sipPassword: S.sipPassword,
-      }));
-    }
+  }catch(e){console.warn('[Api4com] Balance error:',e)}
+}
 
-    /* ══════════ Screens ══════════ */
-    function showScreen(id) {
-      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-      document.getElementById(id).classList.add('active');
-    }
-    function setStatus(type, text) {
-      document.getElementById('status-dot').className = 'status-dot ' + type;
-      const txt = document.getElementById('status-text');
-      txt.textContent = text;
-      const c = { offline:'var(--text-muted)', connecting:'var(--warning)', online:'var(--success)', error:'var(--danger)' };
-      txt.style.color = c[type] || c.offline;
-    }
+/* ══════ SETTINGS ══════ */
+function openSettings(){document.getElementById('modal').classList.add('open')}
+function closeSettings(){document.getElementById('modal').classList.remove('open')}
+function updateSettings(){
+  document.getElementById('cfg-user').textContent=S.userName||'—';
+  document.getElementById('cfg-email').textContent=S.email||'—';
+  document.getElementById('cfg-ext').textContent=S.sipExt||'—';
+  document.getElementById('cfg-domain').textContent=S.sipDomain||'—';
+}
+document.getElementById('modal').addEventListener('click',e=>{if(e.target.classList.contains('modal-bg'))closeSettings()});
 
-    /* ══════════ Toast ══════════ */
-    let _tt = null;
-    function showToast(msg) {
-      const t = document.getElementById('toast');
-      t.textContent = msg; t.classList.add('visible');
-      clearTimeout(_tt);
-      _tt = setTimeout(() => t.classList.remove('visible'), 3500);
-    }
+/* ══════════════════════
+   SIP (JsSIP)
+══════════════════════ */
+function connectSIP(){
+  scr('scr-conn');setHdr('conn','Conectando…');
 
-    /* ══════════════════════════════════
-       LOGIN
-    ══════════════════════════════════ */
-    async function doLogin() {
-      const email    = document.getElementById('inp-email').value.trim();
-      const password = document.getElementById('inp-password').value.trim();
-      const errEl    = document.getElementById('login-error');
-      const btn      = document.getElementById('btn-login');
+  try{
+    const socket=new JsSIP.WebSocketInterface('wss://'+S.sipDomain+':6443');
+    S.ua=new JsSIP.UA({
+      sockets:[socket],
+      uri:'sip:'+S.sipExt+'@'+S.sipDomain,
+      password:S.sipPwd,
+      display_name:S.sipExt,
+      register:true,
+      register_expires:600,
+      session_timers:false,
+      user_agent:'Api4com-GHL-Webphone/5.1',
+    });
 
-      errEl.textContent = '';
-      if (!email || !password) { errEl.textContent = 'Preencha todos os campos.'; return; }
+    S.ua.on('connected',()=>console.log('[Api4com] WSS connected'));
+    S.ua.on('disconnected',()=>{setHdr('err','Conexão perdida')});
+    S.ua.on('registered',()=>{
+      console.log('[Api4com] SIP registered ✓');
+      setHdr('on','Ramal '+S.sipExt+' • Online');
+      scr('scr-dial');showIdle();
+    });
+    S.ua.on('unregistered',()=>setHdr('off','Desconectado'));
+    S.ua.on('registrationFailed',d=>{
+      console.error('[Api4com] Reg failed:',d.cause);
+      setHdr('err','Falha no registro SIP');
+      toast('Erro SIP: '+(d.cause||'registro falhou'));
+      if(d.cause==='Rejected'||d.cause==='Forbidden'){localStorage.removeItem(SK);scr('scr-login');
+        document.getElementById('btn-login').disabled=false;document.getElementById('btn-login').textContent='Entrar'}
+    });
 
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span>';
-
-      try {
-        // 1. Login
-        const lr = await fetch(API_BASE + '/users/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password }),
-        });
-        const ld = await lr.json();
-        if (!lr.ok || !ld.id) throw new Error(ld.error?.message || ld.message || 'Credenciais inválidas');
-
-        S.token = ld.id;
-        S.email = email;
-
-        // 2. Get extensions (SIP credentials)
-        const er = await fetch(API_BASE + '/extensions', {
-          headers: { 'Content-Type': 'application/json', 'Authorization': S.token },
-        });
-        const exts = await er.json();
-        if (!er.ok || !exts.length) throw new Error('Nenhum ramal encontrado na conta.');
-
-        const ext = exts[0];
-        S.sipDomain    = ext.domain;
-        S.sipExtension = ext.ramal;
-        S.sipPassword  = ext.senha;
-
-        saveCredentials();
-        document.getElementById('btn-logout').style.display = '';
-
-        // 3. Connect SIP
-        connectSIP();
-
-      } catch (e) {
-        console.error('[Api4com] Login:', e);
-        errEl.textContent = e.message || 'Erro ao conectar.';
-        btn.disabled = false;
-        btn.textContent = 'Entrar';
-      }
-    }
-
-    /* ══════════════════════════════════
-       LOGOUT
-    ══════════════════════════════════ */
-    function doLogout() {
-      if (S.ua) { try { S.ua.stop(); } catch(e) {} }
-      S = { token:null, email:null, sipDomain:null, sipExtension:null, sipPassword:null,
-            ua:null, session:null, isMuted:false, isOnHold:false, callStart:null, timerInterval:null };
-      localStorage.removeItem(STORAGE_KEY);
-      setStatus('offline', 'Desconectado');
-      document.getElementById('btn-logout').style.display = 'none';
-      document.getElementById('btn-login').disabled = false;
-      document.getElementById('btn-login').textContent = 'Entrar';
-      document.getElementById('login-error').textContent = '';
-      showScreen('screen-login');
-    }
-
-    /* ══════════════════════════════════
-       SIP CONNECTION (JsSIP)
-    ══════════════════════════════════ */
-    function connectSIP() {
-      showScreen('screen-connecting');
-      setStatus('connecting', 'Conectando…');
-
-      try {
-        const socket = new JsSIP.WebSocketInterface('wss://' + S.sipDomain + ':6443');
-
-        const config = {
-          sockets:             [socket],
-          uri:                 'sip:' + S.sipExtension + '@' + S.sipDomain,
-          password:            S.sipPassword,
-          display_name:        S.sipExtension,
-          register:            true,
-          register_expires:    600,
-          session_timers:      false,
-          user_agent:          'Api4com-GHL-Webphone/5.0',
-        };
-
-        S.ua = new JsSIP.UA(config);
-
-        /* ── UA events ── */
-        S.ua.on('connected', () => {
-          console.log('[Api4com] WebSocket connected');
-        });
-
-        S.ua.on('disconnected', () => {
-          console.log('[Api4com] WebSocket disconnected');
-          setStatus('error', 'Conexão perdida');
-        });
-
-        S.ua.on('registered', () => {
-          console.log('[Api4com] SIP registered ✓');
-          setStatus('online', 'Online — Ramal ' + S.sipExtension);
-          showScreen('screen-dialer');
-          showIdle();
-        });
-
-        S.ua.on('unregistered', () => {
-          console.log('[Api4com] SIP unregistered');
-          setStatus('offline', 'Desconectado');
-        });
-
-        S.ua.on('registrationFailed', (data) => {
-          console.error('[Api4com] SIP reg failed:', data.cause);
-          setStatus('error', 'Falha no registro SIP');
-          showToast('Erro SIP: ' + (data.cause || 'registro falhou'));
-          // Back to login if credentials are wrong
-          if (data.cause === 'Rejected' || data.cause === 'Forbidden') {
-            localStorage.removeItem(STORAGE_KEY);
-            showScreen('screen-login');
-            document.getElementById('btn-login').disabled = false;
-            document.getElementById('btn-login').textContent = 'Entrar';
-          }
-        });
-
-        /* ── Incoming calls ── */
-        S.ua.on('newRTCSession', (data) => {
-          console.log('[Api4com] newRTCSession:', data.session.direction);
-          const session = data.session;
-
-          if (session.direction === 'incoming') {
-            setupSession(session);
-            // Small delay to ensure event handlers are attached before answering
-            setTimeout(() => {
-              session.answer({
-                mediaConstraints: { audio: true, video: false },
-              });
-              console.log('[Api4com] Auto-answered incoming call');
-            }, 300);
-          }
-        });
-
-        S.ua.start();
-
-      } catch (e) {
-        console.error('[Api4com] SIP init:', e);
-        setStatus('error', 'Erro na conexão SIP');
-        showToast('Erro: ' + e.message);
-        showScreen('screen-login');
-        document.getElementById('btn-login').disabled = false;
-        document.getElementById('btn-login').textContent = 'Entrar';
-      }
-    }
-
-    /* ══════════════════════════════════
-       CALL
-    ══════════════════════════════════ */
-    async function doCall() {
-      const raw = document.getElementById('inp-phone').value;
-      const phone = sanitize(raw);
-      if (!phone) { showToast('Número inválido'); return; }
-      if (!S.ua || !S.ua.isRegistered()) { showToast('Webphone não conectado'); return; }
-
-      document.getElementById('call-number').textContent = fmtPhone(phone);
-      document.getElementById('btn-dial').disabled = true;
-      showInCall('Iniciando…', false);
-
-      try {
-        const resp = await fetch(API_BASE + '/dialer', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': S.token,
-          },
-          body: JSON.stringify({
-            extension: S.sipExtension,
-            phone: phone,
-            metadata: { gateway: 'ghl-webphone' },
-          }),
-        });
-        const data = await resp.json();
-        if (resp.ok && data.id) {
-          S.lastCallId = data.id;
-          showInCall('Chamando…', false);
-        } else {
-          showToast('Erro: ' + (data.message || data.error || 'falha ao iniciar'));
-          showIdle();
-        }
-      } catch (e) {
-        showToast('Falha de conexão');
-        showIdle();
-      }
-      document.getElementById('btn-dial').disabled = false;
-    }
-
-    function setupSession(session) {
-      S.session = session;
-      S.isMuted = false;
-      S.isOnHold = false;
-      document.getElementById('btn-mute').classList.remove('active');
-      document.getElementById('btn-hold').classList.remove('active');
-
-      showInCall('Chamando…', false);
-
-      session.on('progress', () => {
-        showInCall('Chamando…', false);
-      });
-
-      session.on('accepted', () => {
-        console.log('[Api4com] Call accepted');
-      });
-
-      session.on('confirmed', () => {
-        console.log('[Api4com] Call confirmed (media flowing)');
-        showInCall('Em chamada', true);
-        startTimer();
-      });
-
-      session.on('ended', (data) => {
-        console.log('[Api4com] Call ended:', data.cause);
-        showToast('Chamada encerrada');
-        endCall();
-      });
-
-      session.on('failed', (data) => {
-        console.log('[Api4com] Call failed:', data.cause);
-        showToast('Chamada falhou: ' + (data.cause || 'erro'));
-        endCall();
-      });
-
-      // Attach remote audio
-      session.on('peerconnection', (data) => {
-        const pc = data.peerconnection;
-        pc.ontrack = (event) => {
-          const audio = document.getElementById('sip-audio');
-          if (event.streams && event.streams[0]) {
-            audio.srcObject = event.streams[0];
-          }
-        };
-      });
-    }
-
-    async function doHangup() {
-      if (S.session) {
-        try { S.session.terminate(); } catch(e) {}
-      }
-      // Also hang up via API in case SIP session wasn't established
-      if (S.token && S.lastCallId) {
-        try {
-          await fetch(API_BASE + '/calls/hangup', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': S.token },
-            body: JSON.stringify({ id: S.lastCallId }),
-          });
-        } catch(e) {}
-      }
-      endCall();
-    }
-
-    function toggleMute() {
-      if (!S.session) return;
-      S.isMuted = !S.isMuted;
-      if (S.isMuted) { S.session.mute({ audio: true }); }
-      else { S.session.unmute({ audio: true }); }
-      document.getElementById('btn-mute').classList.toggle('active', S.isMuted);
-    }
-
-    function toggleHold() {
-      if (!S.session) return;
-      S.isOnHold = !S.isOnHold;
-      if (S.isOnHold) { S.session.hold(); }
-      else { S.session.unhold(); }
-      document.getElementById('btn-hold').classList.toggle('active', S.isOnHold);
-    }
-
-    /* ══════════ UI helpers ══════════ */
-    function showIdle() {
-      document.getElementById('dialer-idle').style.display = '';
-      document.getElementById('dialer-incall').style.display = 'none';
-    }
-    function showInCall(label, answered) {
-      showScreen('screen-dialer');
-      document.getElementById('dialer-idle').style.display = 'none';
-      document.getElementById('dialer-incall').style.display = '';
-      const sl = document.getElementById('call-state-label');
-      sl.textContent = label;
-      sl.className = 'call-state-label' + (answered ? ' answered' : '');
-      sl.style.display = answered ? 'none' : '';
-      document.getElementById('call-timer').style.display = answered ? '' : 'none';
-    }
-    function endCall() {
-      S.session = null; S.isMuted = false; S.isOnHold = false;
-      stopTimer();
-      document.getElementById('btn-mute').classList.remove('active');
-      document.getElementById('btn-hold').classList.remove('active');
-      showIdle();
-      notifyOpener({ type: 'api4com:callEnded' });
-    }
-
-    /* ══════════ Timer ══════════ */
-    function startTimer() {
-      S.callStart = Date.now();
-      const el = document.getElementById('call-timer');
-      S.timerInterval = setInterval(() => {
-        const s = Math.floor((Date.now() - S.callStart) / 1000);
-        el.textContent = String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
-      }, 1000);
-    }
-    function stopTimer() {
-      clearInterval(S.timerInterval);
-      document.getElementById('call-timer').textContent = '00:00';
-    }
-
-    /* ══════════ Phone utils ══════════ */
-    function sanitize(raw) {
-      if (!raw) return null;
-      let n = raw.replace(/[^\d+]/g, '');
-      if (!n.startsWith('+')) {
-        if (n.startsWith('55') && n.length >= 12) n = '+' + n;
-        else if (n.length === 10 || n.length === 11) n = '+55' + n;
-      }
-      return (n.startsWith('+') && n.length >= 12 && n.length <= 14) ? n : null;
-    }
-    function fmtPhone(p) {
-      if (!p) return '';
-      const d = p.replace(/\D/g, '');
-      if (d.length === 13) return '+'+d.slice(0,2)+' ('+d.slice(2,4)+') '+d.slice(4,9)+'-'+d.slice(9);
-      if (d.length === 12) return '+'+d.slice(0,2)+' ('+d.slice(2,4)+') '+d.slice(4,8)+'-'+d.slice(8);
-      return p;
-    }
-
-    /* ══════════ postMessage ══════════ */
-    window.addEventListener('message', (e) => {
-      if (!e.data || typeof e.data !== 'object') return;
-      if (e.data.type === 'api4com:dial' && e.data.phone) {
-        document.getElementById('inp-phone').value = e.data.phone;
-        if (S.ua && S.ua.isRegistered() && !S.session) { showScreen('screen-dialer'); showIdle(); }
+    S.ua.on('newRTCSession',data=>{
+      console.log('[Api4com] newRTCSession:',data.session.direction);
+      const ses=data.session;
+      if(ses.direction==='incoming'){
+        setupSession(ses);
+        setTimeout(()=>{ses.answer({mediaConstraints:{audio:true,video:false}});
+          console.log('[Api4com] Auto-answered')},300);
       }
     });
-    function notifyOpener(data) {
-      if (window.opener) { try { window.opener.postMessage(data, '*'); } catch(e) {} }
-    }
 
-    /* ══════════ INIT ══════════ */
-    function init() {
-      // Phone from URL
-      const ph = new URLSearchParams(location.search).get('phone');
-      if (ph) document.getElementById('inp-phone').value = ph;
+    S.ua.start();
+  }catch(e){
+    console.error('[Api4com] SIP init:',e);
+    setHdr('err','Erro SIP');toast('Erro: '+e.message);
+    scr('scr-login');document.getElementById('btn-login').disabled=false;
+    document.getElementById('btn-login').textContent='Entrar';
+  }
+}
 
-      // Saved session
-      const saved = loadSaved();
-      if (saved.token && saved.sipDomain && saved.sipExtension && saved.sipPassword) {
-        Object.assign(S, saved);
-        document.getElementById('btn-logout').style.display = '';
-        connectSIP();
-      } else {
-        showScreen('screen-login');
-      }
-    }
+/* ══════════════════════
+   CALL
+══════════════════════ */
+async function doCall(){
+  const raw=document.getElementById('inp-phone').value;
+  const phone=sanitize(raw);
+  if(!phone){toast('Número inválido');return}
+  if(!S.ua||!S.ua.isRegistered()){toast('Webphone não conectado');return}
 
-    document.getElementById('inp-email').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('inp-password').focus(); });
-    document.getElementById('inp-password').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  document.getElementById('ic-num').textContent=fmtPhone(phone);
+  document.getElementById('btn-go').disabled=true;
+  showInCall('Iniciando…',false);
 
-    init();
-  </script>
+  try{
+    const r=await fetch(API+'/dialer',{method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':S.token},
+      body:JSON.stringify({extension:S.sipExt,phone,metadata:{gateway:'ghl-webphone'}})});
+    const d=await r.json();
+    if(r.ok&&d.id){S.lastCallId=d.id;showInCall('Chamando…',false)}
+    else{toast('Erro: '+(d.message||d.error||'falha'));showIdle()}
+  }catch(e){toast('Falha de conexão');showIdle()}
+  document.getElementById('btn-go').disabled=false;
+}
+
+function setupSession(ses){
+  S.session=ses;S.isMuted=false;S.isHold=false;
+  document.getElementById('btn-mute').classList.remove('on');
+  document.getElementById('btn-hold').classList.remove('on');
+  showInCall('Chamando…',false);
+
+  ses.on('progress',()=>showInCall('Chamando…',false));
+  ses.on('confirmed',()=>{showInCall('Em chamada',true);startTimer()});
+  ses.on('ended',d=>{toast('Chamada encerrada');endCall()});
+  ses.on('failed',d=>{toast('Chamada falhou: '+(d.cause||'erro'));endCall()});
+  ses.on('peerconnection',d=>{
+    d.peerconnection.ontrack=ev=>{
+      const a=document.getElementById('sip-audio');
+      if(ev.streams&&ev.streams[0])a.srcObject=ev.streams[0];
+    };
+  });
+}
+
+async function doHangup(){
+  if(S.session)try{S.session.terminate()}catch(e){}
+  if(S.token&&S.lastCallId){
+    try{await fetch(API+'/calls/hangup',{method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':S.token},
+      body:JSON.stringify({id:S.lastCallId})})}catch(e){}
+  }
+  endCall();
+}
+
+function toggleMute(){
+  if(!S.session)return;S.isMuted=!S.isMuted;
+  S.isMuted?S.session.mute({audio:true}):S.session.unmute({audio:true});
+  document.getElementById('btn-mute').classList.toggle('on',S.isMuted);
+}
+function toggleHold(){
+  if(!S.session)return;S.isHold=!S.isHold;
+  S.isHold?S.session.hold():S.session.unhold();
+  document.getElementById('btn-hold').classList.toggle('on',S.isHold);
+}
+
+/* ══════ UI ══════ */
+function showIdle(){document.getElementById('d-idle').style.display='';document.getElementById('d-call').style.display='none'}
+function showInCall(lbl,ok){
+  scr('scr-dial');
+  document.getElementById('d-idle').style.display='none';
+  document.getElementById('d-call').style.display='';
+  const l=document.getElementById('ic-lbl');
+  l.textContent=lbl;l.className='ic-label'+(ok?' ok':'');
+  l.style.display=ok?'none':'';
+  document.getElementById('ic-timer').style.display=ok?'':'none';
+}
+function endCall(){
+  S.session=null;S.isMuted=false;S.isHold=false;S.lastCallId=null;
+  stopTimer();
+  document.getElementById('btn-mute').classList.remove('on');
+  document.getElementById('btn-hold').classList.remove('on');
+  showIdle();
+  if(window.opener)try{window.opener.postMessage({type:'api4com:callEnded'},'*')}catch(e){}
+}
+
+/* ══════ Timer ══════ */
+function startTimer(){
+  S.callStart=Date.now();const el=document.getElementById('ic-timer');
+  S.timerInt=setInterval(()=>{const s=Math.floor((Date.now()-S.callStart)/1000);
+    el.textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000);
+}
+function stopTimer(){clearInterval(S.timerInt);document.getElementById('ic-timer').textContent='00:00'}
+
+/* ══════ Phone ══════ */
+function sanitize(r){if(!r)return null;let n=r.replace(/[^\d+]/g,'');
+  if(!n.startsWith('+')){if(n.startsWith('55')&&n.length>=12)n='+'+n;
+  else if(n.length===10||n.length===11)n='+55'+n}
+  return(n.startsWith('+')&&n.length>=12&&n.length<=14)?n:null}
+function fmtPhone(p){if(!p)return'';const d=p.replace(/\D/g,'');
+  if(d.length===13)return'+'+d.slice(0,2)+' ('+d.slice(2,4)+') '+d.slice(4,9)+'-'+d.slice(9);
+  if(d.length===12)return'+'+d.slice(0,2)+' ('+d.slice(2,4)+') '+d.slice(4,8)+'-'+d.slice(8);return p}
+
+/* ══════ postMessage ══════ */
+window.addEventListener('message',e=>{
+  if(!e.data||typeof e.data!=='object')return;
+  if(e.data.type==='api4com:dial'&&e.data.phone){
+    document.getElementById('inp-phone').value=e.data.phone;
+    if(S.ua&&S.ua.isRegistered()&&!S.session){scr('scr-dial');showIdle()}
+  }
+});
+
+/* ══════ INIT ══════ */
+document.getElementById('inp-email').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('inp-pass').focus()});
+document.getElementById('inp-pass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
+// Backspace on dialpad
+document.getElementById('inp-phone').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){e.preventDefault();doCall()}
+});
+
+(async function init(){
+  const ph=new URLSearchParams(location.search).get('phone');
+  if(ph)document.getElementById('inp-phone').value=ph;
+
+  const sv=load();
+  if(sv.token&&sv.sipDomain&&sv.sipExt&&sv.sipPwd){
+    Object.assign(S,sv);showHeader();connectSIP();
+  }else{scr('scr-login')}
+})();
+</script>
 </body>
 </html>
