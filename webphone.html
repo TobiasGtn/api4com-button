@@ -388,26 +388,18 @@
 
         /* ── Incoming calls ── */
         S.ua.on('newRTCSession', (data) => {
+          console.log('[Api4com] newRTCSession:', data.session.direction);
           const session = data.session;
 
           if (session.direction === 'incoming') {
-            // Auto-answer calls from dialer API (have X-Api4comintegratedcall header)
-            const req = session.request;
-            const integrated = req.getHeader('X-Api4comintegratedcall');
-            if (integrated === 'true') {
-              setupSession(session);
+            setupSession(session);
+            // Small delay to ensure event handlers are attached before answering
+            setTimeout(() => {
               session.answer({
                 mediaConstraints: { audio: true, video: false },
-                pcConfig: { iceServers: [] },
               });
-              return;
-            }
-            // For other incoming calls, also answer (it's our webphone)
-            setupSession(session);
-            session.answer({
-              mediaConstraints: { audio: true, video: false },
-              pcConfig: { iceServers: [] },
-            });
+              console.log('[Api4com] Auto-answered incoming call');
+            }, 300);
           }
         });
 
@@ -451,6 +443,7 @@
         });
         const data = await resp.json();
         if (resp.ok && data.id) {
+          S.lastCallId = data.id;
           showInCall('Chamando…', false);
         } else {
           showToast('Erro: ' + (data.message || data.error || 'falha ao iniciar'));
@@ -510,10 +503,21 @@
       });
     }
 
-    function doHangup() {
+    async function doHangup() {
       if (S.session) {
         try { S.session.terminate(); } catch(e) {}
       }
+      // Also hang up via API in case SIP session wasn't established
+      if (S.token && S.lastCallId) {
+        try {
+          await fetch(API_BASE + '/calls/hangup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': S.token },
+            body: JSON.stringify({ id: S.lastCallId }),
+          });
+        } catch(e) {}
+      }
+      endCall();
     }
 
     function toggleMute() {
