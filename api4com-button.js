@@ -1,6 +1,6 @@
 /**
  * ============================================================
- *  Api4com Click-to-Call — GHL Whitelabel v5.2
+ *  Api4com Click-to-Call — GHL Whitelabel v5.3
  *
  *  INSTALAÇÃO:
  *  Settings > Whitelabel > Custom Scripts:
@@ -8,7 +8,7 @@
  *
  *  v5.2: Intercepta o botão nativo de ligar do GHL
  *        - 1 número: intercepta clique e abre webphone
- *        - 2+ números: intercepta botões "Ligação" do dropdown
+ *        - 2+ números: deixa dropdown abrir, intercepta botões "Ligação"
  *        - Sem número visível: abre webphone vazio
  * ============================================================
  */
@@ -18,7 +18,7 @@
 
   const WEBPHONE_BASE = 'https://tobiasgtn.github.io/api4com-button/webphone.html';
   let popupRef = null;
-  let hijacked = false;
+  let bypassNextClick = false;
 
   /* ─── Popup ─── */
   function isPopupOpen() { return popupRef && !popupRef.closed; }
@@ -98,11 +98,27 @@
     return (n.startsWith('+') && n.length >= 12 && n.length <= 14) ? n : null;
   }
 
-  /* ─── Extrair telefone de texto do dropdown ─── */
   function extractPhoneFromText(text) {
     if (!text) return null;
     const cleaned = text.replace(/\(Mobile\)|\(Home\)|\(Work\)|\(Other\)/gi, '').trim();
     return sanitize(cleaned);
+  }
+
+  /* ─── Detectar se contato tem múltiplos números ─── */
+  function hasMultipleNumbers() {
+    // O botão nativo tem uma seta (chevron/caret) quando há múltiplos números
+    const btn = document.getElementById('phone-calls');
+    if (!btn) return false;
+    const parent = btn.parentElement;
+    if (!parent) return false;
+    // Verifica se tem SVG de seta/dropdown próximo ao botão
+    const siblings = parent.querySelectorAll('svg');
+    // Se o container do botão tem mais de 1 SVG, provavelmente tem a seta de dropdown
+    if (siblings.length > 1) return true;
+    // Também verifica se tem um botão de dropdown ao lado
+    const dropdownArrow = parent.querySelector('[class*="chevron"], [class*="arrow"], [class*="caret"]');
+    if (dropdownArrow) return true;
+    return false;
   }
 
   /* ─── Interceptar botão nativo #phone-calls ─── */
@@ -111,19 +127,26 @@
     if (!btn || btn.dataset.api4comHijacked) return;
 
     btn.addEventListener('click', function (e) {
-      e.stopImmediatePropagation();
-      e.preventDefault();
-
-      // Tenta extrair telefone do DOM
-      const phone = extractPhone();
-      if (phone) {
-        openWebphone(phone);
+      // Se é um clique de bypass (nós mesmos disparamos), deixa passar
+      if (bypassNextClick) {
+        bypassNextClick = false;
         return;
       }
 
-      // Se não achou, abre sem número (operador digita manualmente)
-      openWebphone(null);
-    }, true); // capture phase para interceptar antes do GHL
+      // Tenta extrair telefone do DOM
+      const phone = extractPhone();
+
+      if (phone) {
+        // Encontrou número → bloqueia clique nativo e abre webphone
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        openWebphone(phone);
+      } else {
+        // Não encontrou número → deixa o clique passar para abrir o dropdown
+        // O MutationObserver vai interceptar os botões "Ligação" do dropdown
+        console.log('[Api4com v5.2] Número não encontrado, aguardando dropdown...');
+      }
+    }, true); // capture phase
 
     btn.dataset.api4comHijacked = 'true';
     console.log('[Api4com v5.2] Botão nativo interceptado ✓');
@@ -131,48 +154,50 @@
 
   /* ─── Interceptar dropdown de múltiplos números ─── */
   function hijackDropdownButtons() {
-    // Observa popovers/dropdowns que aparecem com botões "Ligação"
+    // Busca popovers/dropdowns visíveis
     const popovers = document.querySelectorAll(
-      '.hr-popover, [class*="popover"], [class*="follower"]'
+      '.hr-popover, [class*="hr-popover"], [class*="follower-container"], [class*="popover"]'
     );
 
     popovers.forEach(popover => {
-      // Busca botões "Ligação" dentro do popover
       const buttons = popover.querySelectorAll('button');
       buttons.forEach(btn => {
         if (btn.dataset.api4comHijacked) return;
         const text = btn.innerText || btn.textContent || '';
         if (!text.includes('Ligação') && !text.includes('Call')) return;
 
-        // Encontrar o número associado a este botão
-        // O número está no mesmo row/container que o botão
-        const row = btn.closest('.flex, div[class*="justify"]');
-        if (!row) return;
-
         btn.addEventListener('click', function (e) {
           e.stopImmediatePropagation();
           e.preventDefault();
 
-          // Busca o texto do número na mesma row
+          // Busca o número no mesmo container/row
           let phone = null;
-          const spans = row.querySelectorAll('span, p, div');
-          for (const s of spans) {
-            const p = extractPhoneFromText(s.textContent);
-            if (p) { phone = p; break; }
-          }
-          // Fallback: busca qualquer texto com número no row
-          if (!phone) {
-            phone = extractPhoneFromText(row.textContent);
+          const row = btn.closest('.flex, [class*="justify"], [class*="py-2"]');
+          if (row) {
+            // Busca spans/textos no row que contenham número
+            const textEls = row.querySelectorAll('span, p, div');
+            for (const s of textEls) {
+              const t = s.textContent.trim();
+              // Ignora o próprio botão
+              if (t === 'Ligação' || t === 'Call') continue;
+              const p = extractPhoneFromText(t);
+              if (p) { phone = p; break; }
+            }
+            // Fallback: tenta no texto inteiro do row
+            if (!phone) {
+              const rowText = row.textContent.replace('Ligação', '').replace('Call', '');
+              phone = extractPhoneFromText(rowText);
+            }
           }
 
           openWebphone(phone);
 
-          // Fecha o popover clicando fora
-          document.body.click();
+          // Fecha o popover
+          setTimeout(() => document.body.click(), 100);
         }, true);
 
         btn.dataset.api4comHijacked = 'true';
-        console.log('[Api4com v5.2] Botão dropdown interceptado ✓');
+        console.log('[Api4com v5.2] Botão dropdown "Ligação" interceptado ✓');
       });
     });
   }
@@ -181,18 +206,17 @@
   let lastUrl = location.href;
 
   new MutationObserver(() => {
-    // Re-hijack se URL mudou ou botão reapareceu
     if (location.href !== lastUrl) {
       lastUrl = location.href;
-      hijacked = false;
     }
 
+    // Re-hijack botão nativo se reapareceu
     const btn = document.getElementById('phone-calls');
     if (btn && !btn.dataset.api4comHijacked) {
       hijackNativeButton();
     }
 
-    // Verifica se apareceu dropdown com botões "Ligação"
+    // Intercepta botões "Ligação" em dropdowns que apareçam
     hijackDropdownButtons();
 
   }).observe(document.body, { childList: true, subtree: true });
@@ -206,5 +230,5 @@
     ? document.addEventListener('DOMContentLoaded', init)
     : init();
 
-  console.log('[Api4com GHL] v5.2 — Native button intercept ✓');
+  console.log('[Api4com GHL] v5.3 — Native button intercept ✓');
 })();
