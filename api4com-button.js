@@ -1,12 +1,15 @@
 /**
  * ============================================================
- *  Api4com Click-to-Call — GHL Whitelabel v5.1
+ *  Api4com Click-to-Call — GHL Whitelabel v5.2
  *
  *  INSTALAÇÃO:
  *  Settings > Whitelabel > Custom Scripts:
  *  <script src="https://tobiasgtn.github.io/api4com-button/api4com-ghl.js"></script>
  *
- *  v5.1: Botão único compacto (ícone telefone)
+ *  v5.2: Intercepta o botão nativo de ligar do GHL
+ *        - 1 número: intercepta clique e abre webphone
+ *        - 2+ números: intercepta botões "Ligação" do dropdown
+ *        - Sem número visível: abre webphone vazio
  * ============================================================
  */
 
@@ -14,16 +17,32 @@
   'use strict';
 
   const WEBPHONE_BASE = 'https://tobiasgtn.github.io/api4com-button/webphone.html';
-  const BTN_ID        = 'api4com-btn';
-
   let popupRef = null;
+  let hijacked = false;
 
-  /* ─── Página relevante ─── */
-  function isRelevantPage() {
-    return location.href.includes('/conversations') || location.href.includes('/contacts');
+  /* ─── Popup ─── */
+  function isPopupOpen() { return popupRef && !popupRef.closed; }
+
+  function openWebphone(phone) {
+    const w = 380, h = 620;
+    const left = window.screenX + window.outerWidth - w - 40;
+    const top  = window.screenY + 80;
+    const features = 'width=' + w + ',height=' + h
+      + ',left=' + left + ',top=' + top
+      + ',resizable=yes,scrollbars=no,status=no,menubar=no,toolbar=no';
+
+    if (isPopupOpen()) {
+      popupRef.focus();
+      if (phone) popupRef.postMessage({ type: 'api4com:dial', phone: phone }, '*');
+    } else {
+      const url = phone
+        ? WEBPHONE_BASE + '?phone=' + encodeURIComponent(phone)
+        : WEBPHONE_BASE;
+      popupRef = window.open(url, 'api4com_webphone', features);
+    }
   }
 
-  /* ─── Extração de telefone ─── */
+  /* ─── Extração de telefone do DOM ─── */
   function extractPhone() {
     const telLink = document.querySelector('a[href^="tel:"]');
     if (telLink) { const p = sanitize(telLink.href.replace('tel:', '')); if (p) return p; }
@@ -79,120 +98,113 @@
     return (n.startsWith('+') && n.length >= 12 && n.length <= 14) ? n : null;
   }
 
-  /* ─── Popup ─── */
-  function isPopupOpen() { return popupRef && !popupRef.closed; }
-
-  function openWebphone(phone) {
-    const w = 380, h = 620;
-    const left = window.screenX + window.outerWidth - w - 40;
-    const top  = window.screenY + 80;
-    const features = `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=no,status=no,menubar=no,toolbar=no`;
-
-    if (isPopupOpen()) {
-      popupRef.focus();
-      if (phone) popupRef.postMessage({ type: 'api4com:dial', phone }, '*');
-    } else {
-      const url = phone
-        ? WEBPHONE_BASE + '?phone=' + encodeURIComponent(phone)
-        : WEBPHONE_BASE;
-      popupRef = window.open(url, 'api4com_webphone', features);
-    }
+  /* ─── Extrair telefone de texto do dropdown ─── */
+  function extractPhoneFromText(text) {
+    if (!text) return null;
+    const cleaned = text.replace(/\(Mobile\)|\(Home\)|\(Work\)|\(Other\)/gi, '').trim();
+    return sanitize(cleaned);
   }
 
-  /* ─── Botão compacto ─── */
-  function findAnchor() {
-    for (const btn of document.querySelectorAll('button')) {
-      const text = btn.textContent.trim();
-      if (text === 'Call' || text.endsWith('Call')) {
-        const rgb = window.getComputedStyle(btn).backgroundColor.match(/\d+/g);
-        if (rgb) {
-          const [r, g, b] = rgb.map(Number);
-          if (g > r && g > b && g > 80) return btn;
-        }
-      }
-    }
-    return document.querySelector('button[id*="call"],button[class*="call"],button[id*="wa-"]');
-  }
+  /* ─── Interceptar botão nativo #phone-calls ─── */
+  function hijackNativeButton() {
+    const btn = document.getElementById('phone-calls');
+    if (!btn || btn.dataset.api4comHijacked) return;
 
-  function injectButton() {
-    if (document.getElementById(BTN_ID)) return;
-    const anchor = findAnchor();
-    if (!anchor) return;
+    btn.addEventListener('click', function (e) {
+      e.stopImmediatePropagation();
+      e.preventDefault();
 
-    const h = anchor.offsetHeight || 32;
-    const btn = document.createElement('button');
-    btn.id = BTN_ID;
-    Object.assign(btn.style, {
-      display:        'inline-flex',
-      alignItems:     'center',
-      justifyContent: 'center',
-      width:          h + 'px',
-      height:         h + 'px',
-      borderRadius:   '8px',
-      background:     'linear-gradient(135deg,#1e3a8a,#2563eb)',
-      color:          '#fff',
-      border:         'none',
-      cursor:         'pointer',
-      marginRight:    '8px',
-      verticalAlign:  'middle',
-      flexShrink:     '0',
-      boxShadow:      '0 2px 8px rgba(37,99,235,0.35)',
-      transition:     'filter 0.15s',
-    });
-    btn.title = 'Api4com — Ligar';
-    btn.innerHTML = `
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-           stroke="currentColor" stroke-width="2.5"
-           stroke-linecap="round" stroke-linejoin="round">
-        <path d="M22 16.92v3a2 2 0 01-2.18 2
-                 19.79 19.79 0 01-8.63-3.07
-                 A19.5 19.5 0 013.07 9.81
-                 a19.79 19.79 0 01-3.07-8.67
-                 A2 2 0 012 .91h3a2 2 0 012 1.72
-                 c.127.96.361 1.903.7 2.81
-                 a2 2 0 01-.45 2.11L6.09 8.91
-                 a16 16 0 006 6l1.27-1.27
-                 a2 2 0 012.11-.45
-                 c.907.339 1.85.573 2.81.7
-                 A2 2 0 0122 16.92z"/>
-      </svg>
-    `;
-    btn.addEventListener('mouseenter', () => btn.style.filter = 'brightness(1.15)');
-    btn.addEventListener('mouseleave', () => btn.style.filter = 'brightness(1)');
-    btn.addEventListener('click', () => {
+      // Tenta extrair telefone do DOM
       const phone = extractPhone();
-      openWebphone(phone);
+      if (phone) {
+        openWebphone(phone);
+        return;
+      }
+
+      // Se não achou, abre sem número (operador digita manualmente)
+      openWebphone(null);
+    }, true); // capture phase para interceptar antes do GHL
+
+    btn.dataset.api4comHijacked = 'true';
+    console.log('[Api4com v5.2] Botão nativo interceptado ✓');
+  }
+
+  /* ─── Interceptar dropdown de múltiplos números ─── */
+  function hijackDropdownButtons() {
+    // Observa popovers/dropdowns que aparecem com botões "Ligação"
+    const popovers = document.querySelectorAll(
+      '.hr-popover, [class*="popover"], [class*="follower"]'
+    );
+
+    popovers.forEach(popover => {
+      // Busca botões "Ligação" dentro do popover
+      const buttons = popover.querySelectorAll('button');
+      buttons.forEach(btn => {
+        if (btn.dataset.api4comHijacked) return;
+        const text = btn.innerText || btn.textContent || '';
+        if (!text.includes('Ligação') && !text.includes('Call')) return;
+
+        // Encontrar o número associado a este botão
+        // O número está no mesmo row/container que o botão
+        const row = btn.closest('.flex, div[class*="justify"]');
+        if (!row) return;
+
+        btn.addEventListener('click', function (e) {
+          e.stopImmediatePropagation();
+          e.preventDefault();
+
+          // Busca o texto do número na mesma row
+          let phone = null;
+          const spans = row.querySelectorAll('span, p, div');
+          for (const s of spans) {
+            const p = extractPhoneFromText(s.textContent);
+            if (p) { phone = p; break; }
+          }
+          // Fallback: busca qualquer texto com número no row
+          if (!phone) {
+            phone = extractPhoneFromText(row.textContent);
+          }
+
+          openWebphone(phone);
+
+          // Fecha o popover clicando fora
+          document.body.click();
+        }, true);
+
+        btn.dataset.api4comHijacked = 'true';
+        console.log('[Api4com v5.2] Botão dropdown interceptado ✓');
+      });
     });
-
-    anchor.parentNode.insertBefore(btn, anchor);
-    console.log('[Api4com v5.1] Botão injetado ✓');
   }
 
-  function removeButton() {
-    const el = document.getElementById(BTN_ID);
-    if (el) el.remove();
-  }
-
-  /* ─── SPA Observer ─── */
+  /* ─── Observer para SPA + dropdowns ─── */
   let lastUrl = location.href;
-  let timer   = null;
-
-  function schedule() {
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      if (isRelevantPage()) injectButton();
-      else removeButton();
-    }, 800);
-  }
 
   new MutationObserver(() => {
-    if (location.href !== lastUrl) { lastUrl = location.href; removeButton(); schedule(); return; }
-    if (isRelevantPage() && !document.getElementById(BTN_ID)) schedule();
+    // Re-hijack se URL mudou ou botão reapareceu
+    if (location.href !== lastUrl) {
+      lastUrl = location.href;
+      hijacked = false;
+    }
+
+    const btn = document.getElementById('phone-calls');
+    if (btn && !btn.dataset.api4comHijacked) {
+      hijackNativeButton();
+    }
+
+    // Verifica se apareceu dropdown com botões "Ligação"
+    hijackDropdownButtons();
+
   }).observe(document.body, { childList: true, subtree: true });
 
-  document.readyState === 'loading'
-    ? document.addEventListener('DOMContentLoaded', () => { if (isRelevantPage()) injectButton(); })
-    : (isRelevantPage() && injectButton());
+  // Init
+  function init() {
+    hijackNativeButton();
+  }
 
-  console.log('[Api4com GHL] v5.1 ✓');
+  document.readyState === 'loading'
+    ? document.addEventListener('DOMContentLoaded', init)
+    : init();
+
+  console.log('[Api4com GHL] v5.2 — Native button intercept ✓');
 })();
