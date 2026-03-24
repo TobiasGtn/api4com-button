@@ -457,7 +457,7 @@ async function doCall(){
   try{
     const r=await fetch(API+'/dialer',{method:'POST',
       headers:{'Content-Type':'application/json','Authorization':S.token},
-      body: JSON.stringify({extension:S.sipExt,phone,metadata:{gateway:'ghl-webphone',userName:S.userName||''}})
+      body: JSON.stringify({extension:S.sipExt,phone,metadata:{gateway:'ghl-webphone',userName:S.userName||''}})});
     const d=await r.json();
     if(r.ok&&d.id){S.lastCallId=d.id;showInCall('Chamando…',false)}
     else{toast('Erro: '+(d.message||d.error||'falha'));showIdle()}
