@@ -1,14 +1,114 @@
 /**
- * GHL — Menu "Tarefas" na Sidebar v1.6
+ * GHL — Menu "Tarefas" com Badge v1.0
+ * Script independente — sem relação com Api4com
+ *
+ * No GHL Whitelabel > Custom Scripts, adicione ANTES deste script:
+ * <script>
+ *   window.GHL_TOKEN    = 'Bearer SEU_TOKEN_AQUI';
+ *   window.GHL_LOCATION = 'SEU_LOCATION_ID';
+ * </script>
+ * <script src="https://seuusuario.github.io/seu-repo/tarefas-menu.js"></script>
  */
 (function () {
   'use strict';
 
-  const MENU_ID   = 'ghl-tarefas-menu';
-  const TASKS_URL = 'https://app.gohighlevel.com/v2/location/QZyr1menFJpgYcMsi9a7/tasks';
+  const MENU_ID = 'ghl-tarefas-menu';
+  const BADGE_ID = 'ghl-tarefas-badge';
+  const API_BASE = 'https://services.leadconnectorhq.com';
 
-  /* Path exato do ícone de atividades do GHL (capturado do DevTools) */
+  /* Ícone de atividades (SVG inline — capturado do DevTools do GHL) */
   const TASKS_PATH = 'M16 4c.93 0 1.395 0 1.776.102a3 3 0 012.122 2.122C20 6.605 20 7.07 20 8v9.2c0 1.68 0 2.52-.327 3.162a3 3 0 01-1.311 1.311C17.72 22 16.88 22 15.2 22H8.8c-1.68 0-2.52 0-3.162-.327a3 3 0 01-1.311-1.311C4 19.72 4 18.88 4 17.2V8c0-.93 0-1.395.102-1.776a3 3 0 012.122-2.122C6.605 4 7.07 4 8 4m1 1l2 2 4.5-4.5M9.6 6h4.8c.56 0 .84 0 1.054-.109a1 1 0 00.437-.437C16 5.24 16 4.96 16 4.4v-.8c0-.56 0-.84-.109-1.054a1 1 0 00-.437-.437C15.24 2 14.96 2 14.4 2H9.6c-.56 0-.84 0-1.054.109a1 1 0 00-.437.437C8 2.76 8 3.04 8 3.6v.8c0 .56 0 .84.109 1.054a1 1 0 00.437.437C8.76 6 9.04 6 9.6 6z';
+
+  function getConfig() {
+    return {
+      token:      window.GHL_TOKEN      || null,
+      locationId: window.GHL_LOCATION   || null,
+    };
+  }
+
+  function getTasksUrl() {
+    const { locationId } = getConfig();
+    return locationId
+      ? `https://app.gohighlevel.com/v2/location/${locationId}/tasks`
+      : 'https://app.gohighlevel.com/contacts';
+  }
+
+  /* Busca tarefas vencidas + de hoje via API do GHL */
+  async function fetchTaskCount() {
+    const { token, locationId } = getConfig();
+    if (!token || !locationId) return null;
+
+    try {
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
+      const dueBefore = today.toISOString();
+
+      const resp = await fetch(
+        `${API_BASE}/tasks/search?` +
+        new URLSearchParams({
+          locationId,
+          status:    'pending',
+          dueDate:   dueBefore,
+          limit:     '100',
+        }),
+        {
+          headers: {
+            'Authorization': token,
+            'Version':       '2021-07-28',
+            'Content-Type':  'application/json',
+          },
+        }
+      );
+
+      if (!resp.ok) {
+        console.warn('[Tarefas] API retornou:', resp.status);
+        return null;
+      }
+
+      const data = await resp.json();
+      /* Conta tarefas com dueDate até hoje (inclui atrasadas) */
+      const tasks = data.tasks || data.data || [];
+      return tasks.length;
+
+    } catch (err) {
+      console.warn('[Tarefas] Erro ao buscar tarefas:', err);
+      return null;
+    }
+  }
+
+  /* Atualiza o badge no menu */
+  function updateBadge(count) {
+    const badge = document.getElementById(BADGE_ID);
+    if (!badge) return;
+    if (count === null || count === 0) {
+      badge.style.display = 'none';
+    } else {
+      badge.textContent   = count > 99 ? '99+' : count;
+      badge.style.display = 'flex';
+    }
+  }
+
+  /* Cria o elemento badge */
+  function createBadge() {
+    const badge = document.createElement('span');
+    badge.id = BADGE_ID;
+    Object.assign(badge.style, {
+      display:         'none',
+      alignItems:      'center',
+      justifyContent:  'center',
+      minWidth:        '18px',
+      height:          '18px',
+      padding:         '0 4px',
+      borderRadius:    '9px',
+      background:      '#ef4444',
+      color:           '#fff',
+      fontSize:        '11px',
+      fontWeight:      '600',
+      lineHeight:      '1',
+      marginLeft:      'auto',
+    });
+    return badge;
+  }
 
   function injectMenuItem() {
     if (document.getElementById(MENU_ID)) return;
@@ -41,36 +141,42 @@
       }
     }
 
-    /* Substitui <img> por SVG inline com o ícone de atividades */
+    /* Substitui <img> por SVG inline com ícone de atividades */
     const img = menuItem.querySelector('img');
     if (img) {
       const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
       svg.setAttribute('fill', 'none');
       svg.setAttribute('viewBox', '0 0 24 24');
       svg.setAttribute('stroke-width', '2');
       svg.setAttribute('stroke', 'currentColor');
       svg.setAttribute('aria-hidden', 'true');
-      svg.setAttribute('class', img.className); // mantém classes de tamanho
+      svg.setAttribute('class', img.className);
       svg.style.cssText = img.style.cssText;
 
       const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       path.setAttribute('stroke-linecap', 'round');
       path.setAttribute('stroke-linejoin', 'round');
       path.setAttribute('d', TASKS_PATH);
-
       svg.appendChild(path);
       img.parentNode.replaceChild(svg, img);
     }
 
+    /* Adiciona badge ao final do item */
+    menuItem.appendChild(createBadge());
+
+    /* Navegação */
     menuItem.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      window.location.href = TASKS_URL;
+      window.location.href = getTasksUrl();
     });
 
     anchor.parentNode.insertBefore(menuItem, anchor.nextSibling);
-    console.log('[Tarefas v1.6] Injetado com SVG inline');
+    console.log('[Tarefas v1.0] Injetado');
+
+    /* Busca contagem inicial e agenda atualização a cada 2 min */
+    fetchTaskCount().then(updateBadge);
+    setInterval(() => fetchTaskCount().then(updateBadge), 2 * 60 * 1000);
   }
 
   let lastUrl = location.href;
