@@ -9,6 +9,21 @@
  * </script>
  * <script src="https://seuusuario.github.io/seu-repo/tarefas-menu.js"></script>
  */
+
+(function () {
+  'use strict';
+
+  /* Captura os atributos no momento do carregamento — antes do DOM remover a tag */
+  const _script = document.currentScript;
+  const _token  = _script?.dataset.token    || null;
+  const _loc    = _script?.dataset.location || null;
+
+  function getConfig() {
+    return { token: _token, locationId: _loc };
+  }
+
+  // ... resto do código
+
 (function () {
   'use strict';
 
