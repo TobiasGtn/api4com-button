@@ -1,13 +1,13 @@
 /**
- * GHL — Menu "Tarefas" na Sidebar v1.4
+ * GHL — Menu "Tarefas" na Sidebar v1.5
  */
 (function () {
   'use strict';
 
   const MENU_ID   = 'ghl-tarefas-menu';
   const TASKS_URL = 'https://app.gohighlevel.com/v2/location/QZyr1menFJpgYcMsi9a7/tasks';
-
-  const TASKS_PATH = 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01';
+  const ICON_URL  = 'https://cdn.msgsndr.com/sidebar-v2/icon_tasks.svg';
+  const ICON_FALLBACK = 'https://cdn.msgsndr.com/sidebar-v2/icon_contacts.svg';
 
   function injectMenuItem() {
     if (document.getElementById(MENU_ID)) return;
@@ -40,19 +40,17 @@
       }
     }
 
-    /* Substitui ícone via createElementNS */
-    const existingSvg = menuItem.querySelector('svg');
-    if (existingSvg) {
-      while (existingSvg.firstChild) existingSvg.removeChild(existingSvg.firstChild);
-      const newPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      newPath.setAttribute('stroke-linecap', 'round');
-      newPath.setAttribute('stroke-linejoin', 'round');
-      newPath.setAttribute('d', TASKS_PATH);
-      existingSvg.appendChild(newPath);
+    /* Troca o src da <img> do ícone */
+    const img = menuItem.querySelector('img');
+    if (img) {
+      img.src = ICON_URL;
+      img.alt = 'Tarefas icon';
+      /* Se icon_tasks.svg não existir, cai no fallback */
+      img.onerror = function () {
+        this.src = ICON_FALLBACK;
+        this.onerror = null;
+      };
     }
-
-    const iconEl = menuItem.querySelector('[id*="sidebar"]');
-    if (iconEl) iconEl.removeAttribute('id');
 
     menuItem.addEventListener('click', (e) => {
       e.preventDefault();
@@ -61,7 +59,7 @@
     });
 
     anchor.parentNode.insertBefore(menuItem, anchor.nextSibling);
-    console.log('[Tarefas v1.4] Injetado');
+    console.log('[Tarefas v1.5] Injetado');
   }
 
   let lastUrl = location.href;
