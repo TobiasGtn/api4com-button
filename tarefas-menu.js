@@ -1,100 +1,88 @@
 /**
- * GHL — Menu "Tarefas" na Sidebar v1.1
- * Settings > Whitelabel > Custom Scripts
+ * GHL — Menu "Tarefas" na Sidebar v1.2
  */
 (function () {
   'use strict';
 
-  const MENU_ID = 'api4com-tarefas-menu';
+  const MENU_ID     = 'ghl-tarefas-menu';
+  const TASKS_URL   = 'https://app.gohighlevel.com/v2/location/QZyr1menFJpgYcMsi9a7/tasks';
 
-  /* Ícone de atividades do GHL (clipboard com check) */
   const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18"
     viewBox="0 0 24 24" fill="none" stroke="currentColor"
     stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="9" y="2" width="6" height="4" rx="1" ry="1"/>
+    <rect x="9" y="2" width="6" height="4" rx="1"/>
     <path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/>
     <path d="M9 12l2 2 4-4"/>
   </svg>`;
 
-  function getLocationId() {
-    const match = window.location.pathname.match(
-      /\/v2\/location\/([^/]+)/
-    );
-    return match ? match[1] : null;
-  }
-
-  function navigateToTasks() {
-    const locationId = getLocationId();
-    if (!locationId) {
-      console.warn('[Tarefas] locationId não encontrado na URL');
-      return;
-    }
-    const target = `/v2/location/${locationId}/tasks`;
-    window.history.pushState({}, '', target);
-    window.dispatchEvent(new PopStateEvent('popstate'));
-  }
-
   function injectMenuItem() {
     if (document.getElementById(MENU_ID)) return;
 
+    /* Encontra âncora "Oportunidades" */
     let anchor = null;
-    const allLinks = document.querySelectorAll(
-      'a, [role="menuitem"], li, .hl-nav-item'
-    );
-
-    for (const el of allLinks) {
+    for (const el of document.querySelectorAll('a, li, [role="menuitem"]')) {
       const text = el.textContent.trim().toLowerCase();
-      if (
-        (text === 'oportunidades' || text === 'opportunities') &&
-        el.closest('nav, aside, [class*="sidebar"], [class*="menu"]')
-      ) {
+      if (text === 'oportunidades' || text === 'opportunities') {
         anchor = el;
         break;
       }
     }
-
     if (!anchor) return;
 
+    /* Clona e limpa */
     const menuItem = anchor.cloneNode(true);
     menuItem.id = MENU_ID;
-    menuItem.removeAttribute('href');
-    menuItem.removeAttribute('data-link-type');
-    menuItem.style.cursor = 'pointer';
-
-    /* Atualiza o texto */
-    const textNode = [...menuItem.querySelectorAll('*')]
-      .find(el =>
-        el.textContent.trim().toLowerCase() === 'oportunidades' ||
-        el.textContent.trim().toLowerCase() === 'opportunities'
-      );
-    if (textNode) textNode.textContent = 'Tarefas';
-
-    /* Substitui o ícone */
-    menuItem.innerHTML = menuItem.innerHTML
-      .replace(/<svg[\s\S]*?<\/svg>/, ICON_SVG);
-
-    /* Remove estado ativo herdado */
     menuItem.classList.remove(
       'active', 'router-link-active', 'router-link-exact-active'
     );
     menuItem.removeAttribute('aria-current');
+    menuItem.removeAttribute('href');
+    menuItem.style.cursor = 'pointer';
 
+    /* Atualiza texto — encontra o nó de texto folha */
+    const allEls = menuItem.querySelectorAll('*');
+    for (const el of allEls) {
+      const t = el.textContent.trim().toLowerCase();
+      if (t === 'oportunidades' || t === 'opportunities') {
+        /* Altera apenas o textNode direto */
+        for (const node of el.childNodes) {
+          if (node.nodeType === 3 &&
+              node.textContent.trim().toLowerCase()
+                .match(/oportunidades|opportunities/)) {
+            node.textContent = node.textContent
+              .replace(/Oportunidades/i, 'Tarefas')
+              .replace(/Opportunities/i, 'Tasks');
+          }
+        }
+        break;
+      }
+    }
+
+    /* Substitui o ícone SVG */
+    const existingSvg = menuItem.querySelector('svg');
+    if (existingSvg) {
+      const tmp = document.createElement('span');
+      tmp.innerHTML = ICON_SVG;
+      existingSvg.parentNode.replaceChild(tmp.firstChild, existingSvg);
+    }
+
+    /* Navegação direta */
     menuItem.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      navigateToTasks();
+      window.location.href = TASKS_URL;
     });
 
     anchor.parentNode.insertBefore(menuItem, anchor.nextSibling);
-    console.log('[Tarefas] Menu injetado');
+    console.log('[Tarefas v1.2] Menu injetado');
   }
 
   let lastUrl = location.href;
-  let timer = null;
+  let timer   = null;
 
   function schedule() {
     clearTimeout(timer);
-    timer = setTimeout(injectMenuItem, 600);
+    timer = setTimeout(injectMenuItem, 700);
   }
 
   new MutationObserver(() => {
