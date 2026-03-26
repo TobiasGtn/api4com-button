@@ -1,10 +1,9 @@
 /**
- * GHL — Menu "Tarefas" + Badge Conversas v3.3
- * Base: v2.0 (estável) + badge de conversas via setInterval seguro
+ * GHL — Menu "Tarefas" + Badge Conversas v3.4
  *
  * No GHL Whitelabel > Custom Scripts:
  * <script
- *   src="https://tobiasgtn.github.io/api4com-button/tarefas-menu.js?v=3.3"
+ *   src="https://tobiasgtn.github.io/api4com-button/tarefas-menu.js?v=3.4"
  *   data-n8n="https://n8n.imperadorautomacoes.com.br/webhook/ghl-tasks-count">
  * </script>
  */
@@ -78,62 +77,51 @@
     b.style.background = count === 0 ? '#6b7280' : '#ef4444';
   }
 
-  /* ─── Badge de Conversas ─── */
-  function readConvCount() {
-    const tabs = document.querySelectorAll('button, [role="tab"]');
-    for (const tab of tabs) {
-      if (/não lidos|unread/i.test(tab.textContent)) {
-        const num = tab.textContent.match(/\d+/);
-        if (num) return parseInt(num[0]);
-      }
+  /* ─── Busca tarefas + conversas em uma única chamada ao N8N ─── */
+  async function fetchCounts(locationId, userId) {
+    if (!_n8nUrl || !locationId || !userId) {
+      return { tasks: 0, conversations: 0 };
     }
-    return 0;
+    try {
+      const url = `${_n8nUrl}?locationId=${locationId}&userId=${userId}`;
+      const r = await fetch(url);
+      if (!r.ok) return { tasks: 0, conversations: 0 };
+      const d = await r.json();
+      return {
+        tasks:         typeof d.tasks         === 'number' ? d.tasks         : 0,
+        conversations: typeof d.conversations === 'number' ? d.conversations : 0,
+      };
+    } catch {
+      return { tasks: 0, conversations: 0 };
+    }
   }
 
+  /* ─── Badge de Conversas no menu ─── */
   function injectConvBadge() {
     if (document.getElementById(CONV_BADGE_ID)) return;
-    let anchor = null;
-    for (const el of document.querySelectorAll('a, li, button, [role="menuitem"]')) {
-      const t = el.textContent.trim().toLowerCase();
-      if (t === 'conversas' || t === 'conversations') {
-        anchor = el;
-        break;
-      }
-    }
+
+    const anchor = document.querySelector('[meta="conversations"]')
+      || (() => {
+        for (const el of document.querySelectorAll('a, li, button, [role="menuitem"]')) {
+          const t = el.textContent.trim().toLowerCase();
+          if (t === 'conversas' || t === 'conversations') return el;
+        }
+        return null;
+      })();
+
     if (!anchor) return;
+
     Object.assign(anchor.style, { display: 'flex', alignItems: 'center' });
     anchor.appendChild(createBadge(CONV_BADGE_ID));
-    console.log('[Conversas v3.3] Badge injetado');
-  }
-
-  function syncConvBadge() {
-    const b = document.getElementById(CONV_BADGE_ID);
-    if (!b) { injectConvBadge(); return; }
-    updateBadge(CONV_BADGE_ID, readConvCount());
-  }
-
-  /* ─── Badge de Tarefas ─── */
-  async function fetchTaskCount(locationId, userId) {
-    if (!_n8nUrl || !locationId || !userId) return 0;
-    try {
-      const r = await fetch(`${_n8nUrl}?locationId=${locationId}&userId=${userId}`);
-      if (!r.ok) return 0;
-      const d = await r.json();
-      return typeof d.count === 'number' ? d.count : 0;
-    } catch { return 0; }
+    console.log('[Conversas v3.4] Badge injetado');
   }
 
   /* ─── Menu Tarefas ─── */
   function injectTasksMenu() {
     if (document.getElementById(MENU_ID)) return;
 
-    let anchor = null;
-    for (const el of document.querySelectorAll('a, li, button, [role="menuitem"]')) {
-      const t = el.textContent.trim().toLowerCase();
-      if (t === 'oportunidades' || t === 'opportunities') {
-        anchor = el; break;
-      }
-    }
+    /* Âncora robusta: atributo meta="contacts" — fixo em todas as subcontas */
+    const anchor = document.querySelector('[meta="contacts"]');
     if (!anchor) return;
 
     const locationId = getLocationId();
@@ -145,19 +133,23 @@
     item.id = MENU_ID;
     item.classList.remove('active', 'router-link-active', 'router-link-exact-active');
     item.removeAttribute('aria-current');
+    item.removeAttribute('meta');
     item.removeAttribute('href');
+    item.removeAttribute('id');
     item.style.cursor = 'pointer';
 
+    /* Atualiza texto */
     const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT, null, false);
     let node;
     while ((node = walker.nextNode())) {
-      if (/oportunidades|opportunities/i.test(node.textContent)) {
+      if (/contatos|contacts/i.test(node.textContent)) {
         node.textContent = node.textContent
-          .replace(/Oportunidades/i, 'Tarefas')
-          .replace(/Opportunities/i, 'Tasks');
+          .replace(/Contatos/i, 'Tarefas')
+          .replace(/Contacts/i, 'Tasks');
       }
     }
 
+    /* Substitui ícone */
     const img = item.querySelector('img');
     if (img) {
       const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -176,23 +168,36 @@
       img.parentNode.replaceChild(svg, img);
     }
 
+    item.id = MENU_ID;
     item.appendChild(createBadge(BADGE_ID));
+
     item.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
       window.location.href = tasksUrl;
     });
 
+    /* Insere depois de Contatos */
     anchor.parentNode.insertBefore(item, anchor.nextSibling);
-    console.log('[Tarefas v3.3] Injetado | locationId:', locationId);
+    console.log('[Tarefas v3.4] Injetado | locationId:', locationId);
 
+    /* Busca os dois badges de uma vez */
     waitForUserId((userId) => {
-      fetchTaskCount(locationId, userId).then(c => updateBadge(BADGE_ID, c));
-      setInterval(() => fetchTaskCount(locationId, userId).then(c => updateBadge(BADGE_ID, c)), 2 * 60 * 1000);
+      console.log('[Tarefas v3.4] userId:', userId);
+
+      function refresh() {
+        fetchCounts(locationId, userId).then(({ tasks, conversations }) => {
+          updateBadge(BADGE_ID, tasks);
+          updateBadge(CONV_BADGE_ID, conversations);
+        });
+      }
+
+      refresh();
+      setInterval(refresh, 2 * 60 * 1000);
     });
   }
 
-  /* ─── Observer — igual à v2, sem nenhuma chamada DOM dentro ─── */
+  /* ─── Observer igual à v2 — sem chamadas DOM dentro ─── */
   let lastUrl = location.href;
   let timer   = null;
 
@@ -211,14 +216,7 @@
       return;
     }
     if (!document.getElementById(MENU_ID)) schedule();
-    /* SEM syncConversationsBadge() aqui — era o causador do travamento */
   }).observe(document.body, { childList: true, subtree: true });
-
-  /* Badge de conversas atualiza via setInterval — só começa 5s após load */
-  setTimeout(() => {
-    syncConvBadge();
-    setInterval(syncConvBadge, 30 * 1000);
-  }, 5000);
 
   document.readyState === 'loading'
     ? document.addEventListener('DOMContentLoaded', schedule)
