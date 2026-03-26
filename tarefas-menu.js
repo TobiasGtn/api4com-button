@@ -1,214 +1,42 @@
-/**
- * GHL — Menu "Tarefas" + Badge Conversas v3.1
- * Correção: Observer leve, sem processar mutações durante carregamento
- *
- * No GHL Whitelabel > Custom Scripts:
- * <script
- *   src="https://tobiasgtn.github.io/api4com-button/tarefas-menu.js?v=3.1"
- *   data-n8n="https://n8n.imperadorautomacoes.com.br/webhook/ghl-tasks-count">
- * </script>
- */
 (function () {
   'use strict';
-
-  const _script = document.currentScript;
-  const _n8nUrl = _script?.dataset.n8n || null;
-
-  const MENU_ID       = 'ghl-tarefas-menu';
-  const BADGE_ID      = 'ghl-tarefas-badge';
-  const CONV_BADGE_ID = 'ghl-conversas-badge';
-
-  const TASKS_PATH = 'M16 4c.93 0 1.395 0 1.776.102a3 3 0 012.122 2.122C20 6.605 20 7.07 20 8v9.2c0 1.68 0 2.52-.327 3.162a3 3 0 01-1.311 1.311C17.72 22 16.88 22 15.2 22H8.8c-1.68 0-2.52 0-3.162-.327a3 3 0 01-1.311-1.311C4 19.72 4 18.88 4 17.2V8c0-.93 0-1.395.102-1.776a3 3 0 012.122-2.122C6.605 4 7.07 4 8 4m1 1l2 2 4.5-4.5M9.6 6h4.8c.56 0 .84 0 1.054-.109a1 1 0 00.437-.437C16 5.24 16 4.96 16 4.4v-.8c0-.56 0-.84-.109-1.054a1 1 0 00-.437-.437C15.24 2 14.96 2 14.4 2H9.6c-.56 0-.84 0-1.054.109a1 1 0 00-.437.437C8 2.76 8 3.04 8 3.6v.8c0 .56 0 .84.109 1.054a1 1 0 00.437.437C8.76 6 9.04 6 9.6 6z';
-
-  /* ─── Helpers ─── */
-  function getLocationId() {
-    const match = window.location.pathname.match(/\/location\/([^/]+)/);
-    return match ? match[1] : null;
-  }
-
-  function getUserId() {
+  
+  setTimeout(function() {
     try {
-      const entries = performance.getEntriesByType('resource');
-      for (const entry of entries) {
-        const match = entry.name.match(/[?&]userId=([^&]+)/);
-        if (match) return match[1];
+      var anchor = null;
+      var els = document.querySelectorAll('a, li, button');
+      for (var i = 0; i < els.length; i++) {
+        var t = els[i].textContent.trim().toLowerCase();
+        if (t === 'oportunidades' || t === 'opportunities') {
+          anchor = els[i];
+          break;
+        }
       }
-    } catch (e) {}
-    return null;
-  }
+      if (!anchor) return;
 
-  function waitForUserId(callback) {
-    const id = getUserId();
-    if (id) { callback(id); return; }
-    let attempts = 0;
-    const iv = setInterval(() => {
-      attempts++;
-      const uid = getUserId();
-      if (uid) { clearInterval(iv); callback(uid); return; }
-      if (attempts > 100) { clearInterval(iv); callback(null); }
-    }, 100);
-  }
+      var item = anchor.cloneNode(true);
+      item.id = 'ghl-tarefas-menu';
+      item.style.cursor = 'pointer';
 
-  function createBadge(id) {
-    const b = document.createElement('span');
-    b.id = id;
-    Object.assign(b.style, {
-      display: 'none', alignItems: 'center', justifyContent: 'center',
-      minWidth: '18px', height: '18px', padding: '0 4px',
-      borderRadius: '9px', background: '#6b7280', color: '#fff',
-      fontSize: '11px', fontWeight: '600', lineHeight: '1', marginLeft: 'auto',
-    });
-    return b;
-  }
-
-  function updateBadge(id, count) {
-    const b = document.getElementById(id);
-    if (!b) return;
-    b.textContent      = count > 99 ? '99+' : String(count);
-    b.style.display    = 'flex';
-    b.style.background = count === 0 ? '#6b7280' : '#ef4444';
-  }
-
-  /* ─── Conversas: lê badge do DOM via polling leve ─── */
-  function readConvCount() {
-    // Busca o número no botão "Não lidos" da aba de conversas
-    const tabs = document.querySelectorAll('button, [role="tab"]');
-    for (const tab of tabs) {
-      if (/não lidos|unread/i.test(tab.textContent)) {
-        const num = tab.textContent.match(/\d+/);
-        if (num) return parseInt(num[0]);
+      var walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT, null, false);
+      var node;
+      while ((node = walker.nextNode())) {
+        if (/oportunidades|opportunities/i.test(node.textContent)) {
+          node.textContent = node.textContent.replace(/Oportunidades/i, 'Tarefas');
+        }
       }
+
+      item.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var loc = window.location.pathname.match(/\/location\/([^/]+)/);
+        if (loc) window.location.href = 'https://app.gohighlevel.com/v2/location/' + loc[1] + '/tasks';
+      });
+
+      anchor.parentNode.insertBefore(item, anchor.nextSibling);
+      console.log('[Tarefas v3.2] OK');
+    } catch(e) {
+      console.error('[Tarefas v3.2] Erro:', e);
     }
-    return 0;
-  }
-
-  function injectConvBadge() {
-    if (document.getElementById(CONV_BADGE_ID)) return;
-    let anchor = null;
-    for (const el of document.querySelectorAll('a, li, button, [role="menuitem"]')) {
-      const t = el.textContent.trim().toLowerCase();
-      if (t === 'conversas' || t === 'conversations') {
-        anchor = el;
-        break;
-      }
-    }
-    if (!anchor) return;
-
-    Object.assign(anchor.style, { display: 'flex', alignItems: 'center' });
-    anchor.appendChild(createBadge(CONV_BADGE_ID));
-    console.log('[Conversas v3.1] Badge injetado');
-  }
-
-  /* ─── Tarefas: busca N8N ─── */
-  async function fetchTaskCount(locationId, userId) {
-    if (!_n8nUrl || !locationId || !userId) return 0;
-    try {
-      const r = await fetch(`${_n8nUrl}?locationId=${locationId}&userId=${userId}`);
-      if (!r.ok) return 0;
-      const d = await r.json();
-      return typeof d.count === 'number' ? d.count : 0;
-    } catch { return 0; }
-  }
-
-  function injectTasksMenu() {
-    if (document.getElementById(MENU_ID)) return;
-
-    let anchor = null;
-    for (const el of document.querySelectorAll('a, li, button, [role="menuitem"]')) {
-      const t = el.textContent.trim().toLowerCase();
-      if (t === 'oportunidades' || t === 'opportunities') {
-        anchor = el; break;
-      }
-    }
-    if (!anchor) return;
-
-    const locationId = getLocationId();
-    const tasksUrl   = locationId
-      ? `https://app.gohighlevel.com/v2/location/${locationId}/tasks`
-      : 'https://app.gohighlevel.com/contacts';
-
-    const item = anchor.cloneNode(true);
-    item.id = MENU_ID;
-    item.classList.remove('active', 'router-link-active', 'router-link-exact-active');
-    item.removeAttribute('aria-current');
-    item.removeAttribute('href');
-    item.style.cursor = 'pointer';
-
-    const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT, null, false);
-    let node;
-    while ((node = walker.nextNode())) {
-      if (/oportunidades|opportunities/i.test(node.textContent)) {
-        node.textContent = node.textContent
-          .replace(/Oportunidades/i, 'Tarefas')
-          .replace(/Opportunities/i, 'Tasks');
-      }
-    }
-
-    const img = item.querySelector('img');
-    if (img) {
-      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      svg.setAttribute('fill', 'none');
-      svg.setAttribute('viewBox', '0 0 24 24');
-      svg.setAttribute('stroke-width', '2');
-      svg.setAttribute('stroke', 'currentColor');
-      svg.setAttribute('aria-hidden', 'true');
-      svg.setAttribute('class', img.className);
-      svg.style.cssText = img.style.cssText;
-      const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      p.setAttribute('stroke-linecap', 'round');
-      p.setAttribute('stroke-linejoin', 'round');
-      p.setAttribute('d', TASKS_PATH);
-      svg.appendChild(p);
-      img.parentNode.replaceChild(svg, img);
-    }
-
-    item.appendChild(createBadge(BADGE_ID));
-    item.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      window.location.href = tasksUrl;
-    });
-
-    anchor.parentNode.insertBefore(item, anchor.nextSibling);
-    console.log('[Tarefas v3.1] Injetado | locationId:', locationId);
-
-    waitForUserId((userId) => {
-      fetchTaskCount(locationId, userId).then(c => updateBadge(BADGE_ID, c));
-      setInterval(() => fetchTaskCount(locationId, userId).then(c => updateBadge(BADGE_ID, c)), 2 * 60 * 1000);
-    });
-  }
-
-  /* ─── Init e Observer LEVE ─── */
-  let lastUrl = location.href;
-  let injectTimer = null;
-  let pollTimer = null;
-
-  function scheduleInject() {
-    clearTimeout(injectTimer);
-    injectTimer = setTimeout(() => {
-      injectTasksMenu();
-      injectConvBadge();
-    }, 800);
-  }
-
-  /* Polling leve para badge de conversas — a cada 15s, sem observer */
-  function startConvPolling() {
-    clearInterval(pollTimer);
-    pollTimer = setInterval(() => {
-      const count = readConvCount();
-      updateBadge(CONV_BADGE_ID, count);
-    }, 15 * 1000);
-  }
-
-  /* Observer MÍNIMO — só detecta mudança de URL, não processa DOM */
-  new MutationObserver(() => {
-    if (location.href !== lastUrl) {
-      lastUrl = location.href;
-      scheduleInject();
-    }
-  }).observe(document.body, { childList: true, subtree: false });
-  //                                                         ^^^^^ subtree: FALSE — muito mais leve
-
-  scheduleInject();
-  startConvPolling();
+  }, 2000);
 })();
