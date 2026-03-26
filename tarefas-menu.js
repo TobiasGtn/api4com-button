@@ -1,9 +1,10 @@
 /**
- * GHL — Menu "Tarefas" com Badge v1.2
+ * GHL — Menu "Tarefas" com Badge v2.0
+ * Funciona para qualquer subconta e qualquer usuário automaticamente
  *
  * No GHL Whitelabel > Custom Scripts:
  * <script
- *   src="https://tobiasgtn.github.io/api4com-button/tarefas-menu.js?v=1.2"
+ *   src="https://tobiasgtn.github.io/api4com-button/tarefas-menu.js?v=2.0"
  *   data-n8n="https://n8n.imperadorautomacoes.com.br/webhook/ghl-tasks-count">
  * </script>
  */
@@ -18,13 +19,58 @@
 
   const TASKS_PATH = 'M16 4c.93 0 1.395 0 1.776.102a3 3 0 012.122 2.122C20 6.605 20 7.07 20 8v9.2c0 1.68 0 2.52-.327 3.162a3 3 0 01-1.311 1.311C17.72 22 16.88 22 15.2 22H8.8c-1.68 0-2.52 0-3.162-.327a3 3 0 01-1.311-1.311C4 19.72 4 18.88 4 17.2V8c0-.93 0-1.395.102-1.776a3 3 0 012.122-2.122C6.605 4 7.07 4 8 4m1 1l2 2 4.5-4.5M9.6 6h4.8c.56 0 .84 0 1.054-.109a1 1 0 00.437-.437C16 5.24 16 4.96 16 4.4v-.8c0-.56 0-.84-.109-1.054a1 1 0 00-.437-.437C15.24 2 14.96 2 14.4 2H9.6c-.56 0-.84 0-1.054.109a1 1 0 00-.437.437C8 2.76 8 3.04 8 3.6v.8c0 .56 0 .84.109 1.054a1 1 0 00.437.437C8.76 6 9.04 6 9.6 6z';
 
-  async function fetchTaskCount() {
+  /* ─── Extrai locationId da URL do browser ─── */
+  function getLocationId() {
+    const match = window.location.pathname.match(/\/location\/([^/]+)/);
+    return match ? match[1] : null;
+  }
+
+  /* ─── Extrai userId das requisições já feitas pelo GHL ─── */
+  function getUserId() {
+    try {
+      const entries = performance.getEntriesByType('resource');
+      for (const entry of entries) {
+        const match = entry.name.match(/[?&]userId=([^&]+)/);
+        if (match) return match[1];
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  /* ─── Aguarda userId aparecer nas requisições (até 10s) ─── */
+  function waitForUserId(callback) {
+    const userId = getUserId();
+    if (userId) { callback(userId); return; }
+    let attempts = 0;
+    const interval = setInterval(() => {
+      attempts++;
+      const id = getUserId();
+      if (id) {
+        clearInterval(interval);
+        callback(id);
+        return;
+      }
+      if (attempts > 100) {
+        clearInterval(interval);
+        console.warn('[Tarefas] userId não encontrado após 10s');
+        callback(null);
+      }
+    }, 100);
+  }
+
+  /* ─── Busca contagem no N8N ─── */
+  async function fetchTaskCount(locationId, userId) {
     if (!_n8nUrl) {
       console.warn('[Tarefas] data-n8n não configurado');
       return 0;
     }
+    if (!locationId || !userId) {
+      console.warn('[Tarefas] locationId ou userId ausente', { locationId, userId });
+      return 0;
+    }
     try {
-      const resp = await fetch(_n8nUrl);
+      const url = `${_n8nUrl}?locationId=${locationId}&userId=${userId}`;
+      const resp = await fetch(url);
       if (!resp.ok) {
         console.warn('[Tarefas] N8N retornou:', resp.status);
         return 0;
@@ -37,6 +83,7 @@
     }
   }
 
+  /* ─── Atualiza badge ─── */
   function updateBadge(count) {
     const badge = document.getElementById(BADGE_ID);
     if (!badge) return;
@@ -45,6 +92,7 @@
     badge.style.background = count === 0 ? '#6b7280' : '#ef4444';
   }
 
+  /* ─── Cria badge ─── */
   function createBadge() {
     const badge = document.createElement('span');
     badge.id = BADGE_ID;
@@ -66,6 +114,7 @@
     return badge;
   }
 
+  /* ─── Injeta menu ─── */
   function injectMenuItem() {
     if (document.getElementById(MENU_ID)) return;
 
@@ -78,6 +127,11 @@
       }
     }
     if (!anchor) return;
+
+    const locationId = getLocationId();
+    const tasksUrl   = locationId
+      ? `https://app.gohighlevel.com/v2/location/${locationId}/tasks`
+      : 'https://app.gohighlevel.com/contacts';
 
     const menuItem = anchor.cloneNode(true);
     menuItem.id = MENU_ID;
@@ -97,7 +151,7 @@
       }
     }
 
-    /* Substitui <img> por SVG inline */
+    /* Substitui ícone */
     const img = menuItem.querySelector('img');
     if (img) {
       const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -108,7 +162,6 @@
       svg.setAttribute('aria-hidden', 'true');
       svg.setAttribute('class', img.className);
       svg.style.cssText = img.style.cssText;
-
       const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       path.setAttribute('stroke-linecap', 'round');
       path.setAttribute('stroke-linejoin', 'round');
@@ -117,24 +170,34 @@
       img.parentNode.replaceChild(svg, img);
     }
 
+    /* Badge */
     menuItem.appendChild(createBadge());
 
+    /* Navegação */
     menuItem.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      window.location.href =
-        'https://app.gohighlevel.com/v2/location/QZyr1menFJpgYcMsi9a7/tasks';
+      window.location.href = tasksUrl;
     });
 
     anchor.parentNode.insertBefore(menuItem, anchor.nextSibling);
-    console.log('[Tarefas v1.2] Injetado | N8N:', _n8nUrl || 'AUSENTE');
+    console.log('[Tarefas v2.0] Injetado | locationId:', locationId);
 
-    fetchTaskCount().then(updateBadge);
-    setInterval(() => fetchTaskCount().then(updateBadge), 2 * 60 * 1000);
+    /* Busca contagem aguardando userId */
+    waitForUserId((userId) => {
+      console.log('[Tarefas v2.0] userId:', userId);
+      fetchTaskCount(locationId, userId).then(updateBadge);
+
+      /* Atualiza a cada 2 minutos */
+      setInterval(() => {
+        fetchTaskCount(locationId, userId).then(updateBadge);
+      }, 2 * 60 * 1000);
+    });
   }
 
+  /* ─── Observer SPA ─── */
   let lastUrl = location.href;
-  let timer = null;
+  let timer   = null;
 
   function schedule() {
     clearTimeout(timer);
