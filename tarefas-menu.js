@@ -1,77 +1,38 @@
 /**
- * GHL — Menu "Tarefas" com Badge v1.1
- * Script independente — sem relação com Api4com
+ * GHL — Menu "Tarefas" com Badge v1.2
  *
  * No GHL Whitelabel > Custom Scripts:
  * <script
- *   src="https://tobiasgtn.github.io/api4com-button/tarefas-menu.js"
- *   data-token="Bearer SEU_TOKEN_AQUI"
- *   data-location="QZyr1menFJpgYcMsi9a7">
+ *   src="https://tobiasgtn.github.io/api4com-button/tarefas-menu.js?v=1.2"
+ *   data-n8n="https://n8n.imperadorautomacoes.com.br/webhook/ghl-tasks-count">
  * </script>
  */
 (function () {
   'use strict';
 
-  /* Captura atributos no momento do carregamento — antes do DOM remover a tag */
-  const _script = document.currentScript;
-  const _token  = _script?.dataset.token    || null;
-  const _loc    = _script?.dataset.location || null;
+  const _script  = document.currentScript;
+  const _n8nUrl  = _script?.dataset.n8n || null;
 
   const MENU_ID  = 'ghl-tarefas-menu';
   const BADGE_ID = 'ghl-tarefas-badge';
-  const API_BASE = 'https://services.leadconnectorhq.com';
 
   const TASKS_PATH = 'M16 4c.93 0 1.395 0 1.776.102a3 3 0 012.122 2.122C20 6.605 20 7.07 20 8v9.2c0 1.68 0 2.52-.327 3.162a3 3 0 01-1.311 1.311C17.72 22 16.88 22 15.2 22H8.8c-1.68 0-2.52 0-3.162-.327a3 3 0 01-1.311-1.311C4 19.72 4 18.88 4 17.2V8c0-.93 0-1.395.102-1.776a3 3 0 012.122-2.122C6.605 4 7.07 4 8 4m1 1l2 2 4.5-4.5M9.6 6h4.8c.56 0 .84 0 1.054-.109a1 1 0 00.437-.437C16 5.24 16 4.96 16 4.4v-.8c0-.56 0-.84-.109-1.054a1 1 0 00-.437-.437C15.24 2 14.96 2 14.4 2H9.6c-.56 0-.84 0-1.054.109a1 1 0 00-.437.437C8 2.76 8 3.04 8 3.6v.8c0 .56 0 .84.109 1.054a1 1 0 00.437.437C8.76 6 9.04 6 9.6 6z';
 
-  function getConfig() {
-    return { token: _token, locationId: _loc };
-  }
-
-  function getTasksUrl() {
-    const { locationId } = getConfig();
-    return locationId
-      ? `https://app.gohighlevel.com/v2/location/${locationId}/tasks`
-      : 'https://app.gohighlevel.com/contacts';
-  }
-
   async function fetchTaskCount() {
-    const { token, locationId } = getConfig();
-    if (!token || !locationId) {
-      console.warn('[Tarefas] Token ou locationId não configurado');
+    if (!_n8nUrl) {
+      console.warn('[Tarefas] data-n8n não configurado');
       return 0;
     }
-
     try {
-      const today = new Date();
-      today.setHours(23, 59, 59, 999);
-
-      const resp = await fetch(
-        `${API_BASE}/tasks/search?` +
-        new URLSearchParams({
-          locationId,
-          status: 'pending',
-          limit:  '100',
-        }),
-        {
-          headers: {
-            'Authorization': token,
-            'Version':       '2021-07-28',
-            'Content-Type':  'application/json',
-          },
-        }
-      );
-
+      const resp = await fetch(_n8nUrl);
       if (!resp.ok) {
-        console.warn('[Tarefas] API retornou:', resp.status);
+        console.warn('[Tarefas] N8N retornou:', resp.status);
         return 0;
       }
-
       const data = await resp.json();
-      const tasks = data.tasks || data.data || [];
-      return tasks.length;
-
+      return typeof data.count === 'number' ? data.count : 0;
     } catch (err) {
-      console.warn('[Tarefas] Erro ao buscar tarefas:', err);
+      console.warn('[Tarefas] Erro ao buscar contagem:', err);
       return 0;
     }
   }
@@ -79,8 +40,8 @@
   function updateBadge(count) {
     const badge = document.getElementById(BADGE_ID);
     if (!badge) return;
-    badge.textContent   = count > 99 ? '99+' : String(count);
-    badge.style.display = 'flex';
+    badge.textContent      = count > 99 ? '99+' : String(count);
+    badge.style.display    = 'flex';
     badge.style.background = count === 0 ? '#6b7280' : '#ef4444';
   }
 
@@ -161,11 +122,12 @@
     menuItem.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      window.location.href = getTasksUrl();
+      window.location.href =
+        'https://app.gohighlevel.com/v2/location/QZyr1menFJpgYcMsi9a7/tasks';
     });
 
     anchor.parentNode.insertBefore(menuItem, anchor.nextSibling);
-    console.log('[Tarefas v1.1] Injetado — token:', _token ? 'OK' : 'AUSENTE', '| location:', _loc || 'AUSENTE');
+    console.log('[Tarefas v1.2] Injetado | N8N:', _n8nUrl || 'AUSENTE');
 
     fetchTaskCount().then(updateBadge);
     setInterval(() => fetchTaskCount().then(updateBadge), 2 * 60 * 1000);
