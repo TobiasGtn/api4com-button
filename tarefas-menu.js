@@ -80,7 +80,7 @@
     b.textContent   = count > 99 ? '99+' : String(count);
     b.style.display = 'flex';
     /* Azul quando zerado, vermelho quando há pendências */
-    b.style.background = count === 0 ? '#6b7280' : '#0891b2';
+    b.style.background = count === 0 ? '#6b7280' : '#155eef';
   }
 
   /* ─── Busca tarefas + conversas em uma única chamada ao N8N ─── */
