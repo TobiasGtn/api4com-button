@@ -1,9 +1,10 @@
 /**
- * GHL — Menu "Tarefas" + Badge Conversas v3.4
+ * GHL — Menu "Tarefas" + Badge Conversas v3.5
+ * Atualização por interação do usuário (debounce) em vez de setInterval
  *
  * No GHL Whitelabel > Custom Scripts:
  * <script
- *   src="https://tobiasgtn.github.io/api4com-button/tarefas-menu.js?v=3.4"
+ *   src="https://tobiasgtn.github.io/api4com-button/tarefas-menu.js?v=3.5"
  *   data-n8n="https://n8n.imperadorautomacoes.com.br/webhook/ghl-tasks-count">
  * </script>
  */
@@ -17,7 +18,7 @@
   const BADGE_ID      = 'ghl-tarefas-badge';
   const CONV_BADGE_ID = 'ghl-conversas-badge';
 
-  const TASKS_PATH = 'M16 4c.93 0 1.395 0 1.776.102a3 3 0 012.122 2.122C20 6.605 20 7.07 20 8v9.2c0 1.68 0 2.52-.327 3.162a3 3 0 01-1.311 1.311C17.72 22 16.88 22 15.2 22H8.8c-1.68 0-2.52 0-3.162-.327a3 3 0 01-1.311-1.311C4 19.72 4 18.88 4 17.2V8c0-.93 0-1.395.102-1.776a3 3 0 012.122-2.122C6.605 4 7.07 4 8 4m1 1l2 2 4.5-4.5M9.6 6h4.8c.56 0 .84 0 1.054-.109a1 1 0 00.437-.437C16 5.24 16 4.96 16 4.4v-.8c0-.56 0-.84-.109-1.054a1 1 0 00-.437-.437C15.24 2 14.96 2 14.4 2H9.6c-.56 0-.84 0-1.054.109a1 1 0 00-.437.437C8 2.76 8 3.04 8 3.6v.8c0 .56 0 .84.109 1.054a1 1 0 00.437.437C8.76 6 9.04 6 9.6 6z';
+  const TASKS_PATH = 'M16 4c.93 0 1.395 0 1.776.102a3 3 0 012.122 2.122C20 6.605 20 7.07 20 8v9.2c0 1.68 0 2.52-.327 3.162a3 3 0 01-1.311 1.311C17.72 22 16.88 22 15.2 22H8.8c-1.68 0-2.52 0-3.162-.327a3 3 0 01-1.311-1.311C4 19.72 4 18.88 4 17.2V8c0-.93 0-1.395.102-1.776a3 3 0 012.122-2.122C6.605 4 7.07 4 8 4m1 1l2 2 4.5-4.5M9.6 6h4.8c.56 0 .84 0 1.054-.109a1 1 0 00.437-.437C16 5.24 16 4.96 16 4.4v-.8c0-.56 0-.84-.109-1.054a1 1 0 00-.437-.437C15.24 2 14.96 2 14.4 2H9.6c-.56 0-.84 0-1.054.109a1 1 0 00.437.437C8 2.76 8 3.04 8 3.6v.8c0 .56 0 .84.109 1.054a1 1 0 00.437.437C8.76 6 9.04 6 9.6 6z';
 
   /* ─── Helpers ─── */
   function getLocationId() {
@@ -110,10 +111,9 @@
       })();
 
     if (!anchor) return;
-
     Object.assign(anchor.style, { display: 'flex', alignItems: 'center' });
     anchor.appendChild(createBadge(CONV_BADGE_ID));
-    console.log('[Conversas v3.4] Badge injetado');
+    console.log('[Conversas v3.5] Badge injetado');
   }
 
   /* ─── Menu Tarefas ─── */
@@ -135,7 +135,6 @@
     item.removeAttribute('aria-current');
     item.removeAttribute('meta');
     item.removeAttribute('href');
-    item.removeAttribute('id');
     item.style.cursor = 'pointer';
 
     /* Atualiza texto */
@@ -179,11 +178,11 @@
 
     /* Insere depois de Contatos */
     anchor.parentNode.insertBefore(item, anchor.nextSibling);
-    console.log('[Tarefas v3.4] Injetado | locationId:', locationId);
+    console.log('[Tarefas v3.5] Injetado | locationId:', locationId);
 
-    /* Busca os dois badges de uma vez */
+    /* Aguarda userId e configura refresh por interação */
     waitForUserId((userId) => {
-      console.log('[Tarefas v3.4] userId:', userId);
+      console.log('[Tarefas v3.5] userId:', userId);
 
       function refresh() {
         fetchCounts(locationId, userId).then(({ tasks, conversations }) => {
@@ -192,8 +191,21 @@
         });
       }
 
+      /* Primeira carga imediata */
       refresh();
-      setInterval(refresh, 2 * 60 * 1000);
+
+      /* Debounce — atualiza 3s após última interação do usuário */
+      let debounceTimer = null;
+      function scheduleRefresh() {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(refresh, 3000);
+      }
+
+      /* Escuta cliques e teclas em todo o documento */
+      document.addEventListener('click', scheduleRefresh, true);
+      document.addEventListener('keydown', scheduleRefresh, true);
+
+      console.log('[Tarefas v3.5] Debounce ativo — atualiza 3s após interação');
     });
   }
 
