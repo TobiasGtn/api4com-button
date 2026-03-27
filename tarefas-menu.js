@@ -1,10 +1,12 @@
 /**
- * GHL — Menu "Tarefas" + Badge Conversas v3.5
- * Atualização por interação do usuário (debounce) em vez de setInterval
+ * GHL — Menu "Tarefas" + Badge Conversas v3.6
+ * - Navegação SPA nativa (sem reload)
+ * - Badge estilo nativo GHL (azul, quadrado com cantos arredondados)
+ * - Atualização por debounce (3s após interação)
  *
  * No GHL Whitelabel > Custom Scripts:
  * <script
- *   src="https://tobiasgtn.github.io/api4com-button/tarefas-menu.js?v=3.5"
+ *   src="https://tobiasgtn.github.io/api4com-button/tarefas-menu.js?v=3.6"
  *   data-n8n="https://n8n.imperadorautomacoes.com.br/webhook/ghl-tasks-count">
  * </script>
  */
@@ -18,7 +20,7 @@
   const BADGE_ID      = 'ghl-tarefas-badge';
   const CONV_BADGE_ID = 'ghl-conversas-badge';
 
-  const TASKS_PATH = 'M16 4c.93 0 1.395 0 1.776.102a3 3 0 012.122 2.122C20 6.605 20 7.07 20 8v9.2c0 1.68 0 2.52-.327 3.162a3 3 0 01-1.311 1.311C17.72 22 16.88 22 15.2 22H8.8c-1.68 0-2.52 0-3.162-.327a3 3 0 01-1.311-1.311C4 19.72 4 18.88 4 17.2V8c0-.93 0-1.395.102-1.776a3 3 0 012.122-2.122C6.605 4 7.07 4 8 4m1 1l2 2 4.5-4.5M9.6 6h4.8c.56 0 .84 0 1.054-.109a1 1 0 00.437-.437C16 5.24 16 4.96 16 4.4v-.8c0-.56 0-.84-.109-1.054a1 1 0 00-.437-.437C15.24 2 14.96 2 14.4 2H9.6c-.56 0-.84 0-1.054.109a1 1 0 00.437.437C8 2.76 8 3.04 8 3.6v.8c0 .56 0 .84.109 1.054a1 1 0 00.437.437C8.76 6 9.04 6 9.6 6z';
+  const TASKS_PATH = 'M16 4c.93 0 1.395 0 1.776.102a3 3 0 012.122 2.122C20 6.605 20 7.07 20 8v9.2c0 1.68 0 2.52-.327 3.162a3 3 0 01-1.311 1.311C17.72 22 16.88 22 15.2 22H8.8c-1.68 0-2.52 0-3.162-.327a3 3 0 01-1.311-1.311C4 19.72 4 18.88 4 17.2V8c0-.93 0-1.395.102-1.776a3 3 0 012.122-2.122C6.605 4 7.07 4 8 4m1 1l2 2 4.5-4.5M9.6 6h4.8c.56 0 .84 0 1.054-.109a1 1 0 00.437-.437C16 5.24 16 4.96 16 4.4v-.8c0-.56 0-.84-.109-1.054a1 1 0 00-.437-.437C15.24 2 14.96 2 14.4 2H9.6c-.56 0-.84 0-1.054.109a1 1 0 00-.437.437C8 2.76 8 3.04 8 3.6v.8c0 .56 0 .84.109 1.054a1 1 0 00.437.437C8.76 6 9.04 6 9.6 6z';
 
   /* ─── Helpers ─── */
   function getLocationId() {
@@ -49,6 +51,7 @@
     }, 100);
   }
 
+  /* ─── Badge estilo nativo GHL ─── */
   function createBadge(id) {
     const b = document.createElement('span');
     b.id = id;
@@ -58,14 +61,15 @@
       justifyContent: 'center',
       minWidth:       '18px',
       height:         '18px',
-      padding:        '0 4px',
-      borderRadius:   '9px',
-      background:     '#6b7280',
+      padding:        '0 5px',
+      borderRadius:   '4px',       /* quadrado com cantos arredondados */
+      background:     '#0891b2',   /* azul nativo do GHL */
       color:          '#fff',
       fontSize:       '11px',
-      fontWeight:     '600',
+      fontWeight:     '700',
       lineHeight:     '1',
       marginLeft:     'auto',
+      letterSpacing:  '0px',
     });
     return b;
   }
@@ -73,9 +77,10 @@
   function updateBadge(id, count) {
     const b = document.getElementById(id);
     if (!b) return;
-    b.textContent      = count > 99 ? '99+' : String(count);
-    b.style.display    = 'flex';
-    b.style.background = count === 0 ? '#6b7280' : '#ef4444';
+    b.textContent   = count > 99 ? '99+' : String(count);
+    b.style.display = 'flex';
+    /* Azul quando zerado, vermelho quando há pendências */
+    b.style.background = count === 0 ? '#6b7280' : '#0891b2';
   }
 
   /* ─── Busca tarefas + conversas em uma única chamada ao N8N ─── */
@@ -113,7 +118,7 @@
     if (!anchor) return;
     Object.assign(anchor.style, { display: 'flex', alignItems: 'center' });
     anchor.appendChild(createBadge(CONV_BADGE_ID));
-    console.log('[Conversas v3.5] Badge injetado');
+    console.log('[Conversas v3.6] Badge injetado');
   }
 
   /* ─── Menu Tarefas ─── */
@@ -126,15 +131,17 @@
 
     const locationId = getLocationId();
     const tasksUrl   = locationId
-      ? `https://app.gohighlevel.com/v2/location/${locationId}/tasks`
-      : 'https://app.gohighlevel.com/contacts';
+      ? `/v2/location/${locationId}/tasks`
+      : '/contacts';
 
     const item = anchor.cloneNode(true);
     item.id = MENU_ID;
     item.classList.remove('active', 'router-link-active', 'router-link-exact-active');
     item.removeAttribute('aria-current');
     item.removeAttribute('meta');
-    item.removeAttribute('href');
+
+    /* Navegação SPA — deixa o Vue Router do GHL interceptar o clique */
+    item.setAttribute('href', tasksUrl);
     item.style.cursor = 'pointer';
 
     /* Atualiza texto */
@@ -170,19 +177,13 @@
     item.id = MENU_ID;
     item.appendChild(createBadge(BADGE_ID));
 
-    item.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      window.location.href = tasksUrl;
-    });
-
     /* Insere depois de Contatos */
     anchor.parentNode.insertBefore(item, anchor.nextSibling);
-    console.log('[Tarefas v3.5] Injetado | locationId:', locationId);
+    console.log('[Tarefas v3.6] Injetado | locationId:', locationId);
 
     /* Aguarda userId e configura refresh por interação */
     waitForUserId((userId) => {
-      console.log('[Tarefas v3.5] userId:', userId);
+      console.log('[Tarefas v3.6] userId:', userId);
 
       function refresh() {
         fetchCounts(locationId, userId).then(({ tasks, conversations }) => {
@@ -201,15 +202,14 @@
         debounceTimer = setTimeout(refresh, 3000);
       }
 
-      /* Escuta cliques e teclas em todo o documento */
       document.addEventListener('click', scheduleRefresh, true);
       document.addEventListener('keydown', scheduleRefresh, true);
 
-      console.log('[Tarefas v3.5] Debounce ativo — atualiza 3s após interação');
+      console.log('[Tarefas v3.6] Debounce ativo');
     });
   }
 
-  /* ─── Observer igual à v2 — sem chamadas DOM dentro ─── */
+  /* ─── Observer ─── */
   let lastUrl = location.href;
   let timer   = null;
 
