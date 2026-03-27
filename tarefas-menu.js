@@ -63,7 +63,7 @@
       height:         '18px',
       padding:        '0 5px',
       borderRadius:   '4px',       /* quadrado com cantos arredondados */
-      background:     '#0891b2',   /* azul nativo do GHL */
+      background:     '#155eef',   /* azul nativo do GHL */
       color:          '#fff',
       fontSize:       '11px',
       fontWeight:     '700',
