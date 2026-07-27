@@ -325,10 +325,14 @@ async function doLogin(){
 
     // Extensions
     const er=await fetch(API+'/extensions',{headers:{'Content-Type':'application/json','Authorization':S.token}});
-    const exts=await er.json();
-    if(!er.ok||!exts.length)throw new Error('Nenhum ramal encontrado.');
-    const ext=exts[0];
+    const exts = await er.json();
+    if(!er.ok||!Array.isArray(exts)||!exts.length)throw new Error('Nenhum ramal encontrado na conta.');
+    const alvo = email.trim().toLowerCase();
+    const ext = exts.find(e => (e.email_address||'').trim().toLowerCase() === alvo);
+    if(!ext) throw new Error('Nenhum ramal vinculado a este e-mail. Fale com o administrador.');
     S.sipDomain=ext.domain; S.sipExt=ext.ramal; S.sipPwd=ext.senha;
+    const nomeExt=[ext.first_name,ext.last_name].filter(x=>x&&x!=='empty').join(' ').trim();
+    if(nomeExt) S.userName=nomeExt;
 
     save();
     showHeader();
